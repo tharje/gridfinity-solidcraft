@@ -454,6 +454,41 @@ pub fn fill_floor(params: &Value, size: [f64; 2], corner: [f64; 2]) -> Value {
     p
 }
 
+/// How high a face must reach above the floor to count as a wall: higher than a baseplate, so a
+/// plate already on the floor doesn't stop the next one.
+pub const WALL_MIN_HEIGHT: f64 = 10.0;
+
+/// An upright flat face square to x (axis 0) or y (axis 1): where it is along that axis, which way
+/// it faces (+1 or -1), how far it runs along the other axis, and its lowest and highest z.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WallFace {
+    pub axis: usize,
+    pub facing: f64,
+    pub at: f64,
+    pub span: [f64; 2],
+    pub z: [f64; 2],
+}
+
+/// "Up to next": the floor rectangle (minimum and maximum corner) cut back to the nearest wall
+/// seen from its middle, in each of the four directions, whichever body the wall is in. A wall
+/// is a face looking back towards the middle that stands on (or reaches below) the floor and rises
+/// at least WALL_MIN_HEIGHT above it. With no wall that way, the floor's own edge stays.
+pub fn up_to_walls(mut lo: [f64; 2], mut hi: [f64; 2], floor_z: f64, walls: &[WallFace]) -> ([f64; 2], [f64; 2]) {
+    let mid = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0];
+    for w in walls {
+        let (a, o) = (w.axis, 1 - w.axis);
+        if w.z[0] > floor_z + 1.0 || w.z[1] < floor_z + WALL_MIN_HEIGHT || w.span[0] > mid[o] || w.span[1] < mid[o] {
+            continue;
+        }
+        if w.facing < 0.0 && w.at > mid[a] && w.at < hi[a] {
+            hi[a] = w.at;
+        } else if w.facing > 0.0 && w.at < mid[a] && w.at > lo[a] {
+            lo[a] = w.at;
+        }
+    }
+    (lo, hi)
+}
+
 pub fn parse_drawer(params: &Value) -> Result<DrawerOptions, String> {
     let empty = Map::new();
     let p = params.as_object().unwrap_or(&empty);
@@ -826,7 +861,52 @@ mod guest {
         if lo[0] > hi[0] {
             return Err("Drawer floor: found no edges around that face".into());
         }
+        // Walls may be bodies of their own standing on a bigger floor: stop at them.
+        let (lo, hi) = up_to_walls(lo, hi, z, &wall_faces(lo, hi, z));
         Ok(([hi[0] - lo[0], hi[1] - lo[1]], lo, z))
+    }
+
+    /// The upright faces, square to x or y, of every body over the floor that rises above it.
+    /// Best effort: if the design can't be read this way, there are just no walls.
+    fn wall_faces(lo: [f64; 2], hi: [f64; 2], z: f64) -> Vec<WallFace> {
+        let Ok(m) = host("inspect.measure", json!({})) else { return Vec::new() };
+        let over = |b: &&Value| {
+            let (bmin, bmax) = (&b["bbox"]["min"], &b["bbox"]["max"]);
+            let f = |v: &Value, i: usize| v[i].as_f64().unwrap_or(f64::NAN);
+            f(bmin, 0) < hi[0] && f(bmax, 0) > lo[0] && f(bmin, 1) < hi[1] && f(bmax, 1) > lo[1]
+                && f(bmin, 2) <= z + 1.0 && f(bmax, 2) >= z + WALL_MIN_HEIGHT
+        };
+        let mut out = Vec::new();
+        for b in m["bodies"].as_array().into_iter().flatten().filter(over).take(40) {
+            let Some(body) = b["name"].as_str() else { continue };
+            let (Ok(faces), Ok(edges)) = (host("model.faces", json!({"body": body})), host("model.edges", json!({"body": body}))) else { continue };
+            // upright faces by name: (axis, facing), and their extent from the edges around them
+            let mut upright: Vec<(String, usize, f64, [f64; 3], [f64; 3])> = Vec::new();
+            for f in faces["faces"].as_array().into_iter().flatten() {
+                let n = |i: usize| f["plane_normal"][i].as_f64().unwrap_or(0.0);
+                let axis = if n(0).abs() > 0.999 { 0 } else if n(1).abs() > 0.999 { 1 } else { continue };
+                upright.push((f["name"].as_str().unwrap_or_default().to_string(), axis, n(axis).signum(), [f64::MAX; 3], [f64::MIN; 3]));
+            }
+            for e in edges["edges"].as_array().into_iter().flatten() {
+                let names: Vec<&str> = e["name"].as_str().unwrap_or_default().split('|').collect();
+                for u in upright.iter_mut().filter(|u| names.contains(&u.0.as_str())) {
+                    for k in ["start", "end", "mid"] {
+                        for i in 0..3 {
+                            let v = e[k][i].as_f64().unwrap_or(f64::NAN);
+                            u.3[i] = u.3[i].min(v);
+                            u.4[i] = u.4[i].max(v);
+                        }
+                    }
+                }
+            }
+            for (_, axis, facing, mn, mx) in upright {
+                if mn[0] <= mx[0] {
+                    let o = 1 - axis;
+                    out.push(WallFace { axis, facing, at: mn[axis], span: [mn[o], mx[o]], z: [mn[2], mx[2]] });
+                }
+            }
+        }
+        out
     }
 
     impl Guest for Gridfinity {
@@ -912,6 +992,25 @@ mod tests {
         assert_eq!(parse_drawer(&p).unwrap().gap, 0.0);
         assert_eq!(parse_drawer(&json!({"floor": []})).unwrap().gap, LAYOUT_GAP);
         assert_eq!(parse_drawer(&json!({})).unwrap().gap, LAYOUT_GAP);
+    }
+
+    #[test]
+    fn a_floor_under_separate_walls_stops_at_them() {
+        // floor 330 x 250 at z 4; walls 5 mm (front, back) and 6 mm (left, right), 70 high
+        let wall = |axis, facing, at, span: [f64; 2]| WallFace { axis, facing, at, span, z: [4.0, 74.0] };
+        let walls = [
+            wall(1, 1.0, 5.0, [0.0, 330.0]),      // front wall's inside, looking +y
+            wall(1, -1.0, 245.0, [0.0, 330.0]),   // back wall's inside
+            wall(0, 1.0, 6.0, [5.0, 245.0]),      // left
+            wall(0, -1.0, 324.0, [5.0, 245.0]),   // right
+            wall(0, -1.0, 0.0, [5.0, 245.0]),     // left wall's outside: behind the middle, ignored
+            WallFace { axis: 0, facing: -1.0, at: 200.0, span: [0.0, 250.0], z: [4.0, 9.0] }, // a low plate: not a wall
+            WallFace { axis: 0, facing: -1.0, at: 250.0, span: [0.0, 50.0], z: [4.0, 74.0] }, // off the middle line
+        ];
+        let (lo, hi) = up_to_walls([0.0, 0.0], [330.0, 250.0], 4.0, &walls);
+        assert_eq!((lo, hi), ([6.0, 5.0], [324.0, 245.0]));
+        // no walls: the floor's own edges
+        assert_eq!(up_to_walls([1.0, 2.0], [3.0, 4.0], 0.0, &[]), ([1.0, 2.0], [3.0, 4.0]));
     }
 
     #[test]

@@ -91,6 +91,12 @@ one undo step, editable afterwards, and they keep working without the plugin.
   the floor, and its pieces lie together as they will in the drawer (otherwise they are laid out
   10 mm apart). Width, depth and position are not used then. The floor must be flat and face up.
 
+  The plate stops at the walls, also when they are bodies of their own standing on a bigger floor
+  (like *up to next*): from the middle of the floor it looks in each of the four directions for
+  the nearest upright face that rises at least 10 mm above the floor, in any body. With no wall
+  that way it goes to the floor's edge. A floor that isn't a rectangle is filled to the rectangle
+  around it.
+
   ![A drawer plate made by clicking the drawer's floor](docs/images/drawer-floor.png)
 
 ![Solid bin with custom cutouts](docs/images/solid-bin-cutouts.png)
