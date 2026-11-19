@@ -159,7 +159,7 @@ Dimensions follow the Gridfinity spec as implemented in gridfinity-rebuilt-opens
 ([research/SPEC.md](research/SPEC.md)). Every shape was checked by exporting STL from SolidCraft and
 measuring its cross-sections. Not yet printed: please report how it fits.
 
-> Status: 1.3.0. Tested with SolidCraft 0.43.0 and 0.44.1, both through scripts/`solidcraft-cli` and in
+> Status: 1.3.1. Tested with SolidCraft 0.43.0 and 0.44.1, both through scripts/`solidcraft-cli` and in
 > the desktop app's plugin dialog. SolidCraft's plugin runtime is itself experimental, so other
 > versions may refuse the package.
 >
@@ -168,11 +168,11 @@ measuring its cross-sections. Not yet printed: please report how it fits.
 > all three there.
 
 ## Install
-Download `gridfinity-1.3.0.zip` from the [latest release](../../releases/latest), then in SolidCraft:
+Download `gridfinity-1.3.1.zip` from the [latest release](../../releases/latest), then in SolidCraft:
 **Plugins › Install plugin…** (or **Preferences › Plugins**) and pick the zip. From a script:
 
 ```json
-{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.3.0.zip"}}]}
+{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.3.1.zip"}}]}
 ```
 
 Add `"replace": true` to update an installed version. You can also unpack the zip into

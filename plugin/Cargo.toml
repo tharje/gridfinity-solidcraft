@@ -1,6 +1,6 @@
 [package]
 name = "gridfinity"
-version = "1.3.0"
+version = "1.3.1"
 edition = "2021"
 description = "Gridfinity bins and baseplates for SolidCraft"
 license = "MIT"
