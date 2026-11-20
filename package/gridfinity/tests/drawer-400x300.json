@@ -1,0 +1,18 @@
+{
+  "entry": "drawer",
+  "params": {
+    "drawer_width": 400,
+    "drawer_depth": 300,
+    "printer_x": 256,
+    "printer_y": 256
+  },
+  "expect": {
+    "model": {
+      "body_count": 4,
+      "total": {
+        "volume_mm3": 148266.702
+      }
+    },
+    "tolerance": 0.0001
+  }
+}

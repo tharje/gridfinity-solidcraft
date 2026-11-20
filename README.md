@@ -250,6 +250,8 @@ them (SolidCraft's kernel can't taper profiles that touch).
 `wasm-tools component new` and zips the package into `package/`. Needs Rust with the
 `wasm32-unknown-unknown` target and [wasm-tools](https://github.com/bytecodealliance/wasm-tools).
 
+`package/gridfinity/tests/` holds test cases for SolidCraft 0.45 and later. `solidcraft-cli plugin test package/gridfinity` runs each one on the real host and checks the body count and volume. The tests are left out of the zip.
+
 ## Layout
 - `plugin/` the Rust plugin: `src/geometry.rs` bins and shared shapes, `src/plate.rs` baseplates
   (and why they are built row by row), `src/drawer.rs` splitting a drawer into pieces, `src/lib.rs`
