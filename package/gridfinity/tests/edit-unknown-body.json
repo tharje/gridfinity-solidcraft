@@ -2,8 +2,6 @@
   "entry": "edit",
   "design": "one-bin.sc",
   "params": {
-    "width": 0,
-    "depth": 0,
     "height": 4,
     "dividers_x": -1,
     "dividers_y": -1,
@@ -19,7 +17,13 @@
         "type": "body",
         "name": "Box1"
       }
-    ]
+    ],
+    "cells_x": 0,
+    "cells_y": 0,
+    "inside_label_text_style": "Keep",
+    "inside_label_text_size": -1,
+    "inside_label_text_height": 0,
+    "inside_label_text_font": ""
   },
   "expect": {
     "error": "invalid_input",

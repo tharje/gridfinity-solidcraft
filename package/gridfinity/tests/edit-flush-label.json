@@ -1,0 +1,38 @@
+{
+  "entry": "edit",
+  "design": "one-bin.sc",
+  "params": {
+    "height": 0,
+    "dividers_x": -1,
+    "dividers_y": -1,
+    "inside_scoop": -1,
+    "inside": "Keep",
+    "holes_magnet": "Keep",
+    "holes_screw": "Keep",
+    "stacking_lip": "Keep",
+    "inside_label_tab": "Yes",
+    "inside_label_text": "A",
+    "bin": [
+      {
+        "type": "body",
+        "name": "Test bin"
+      }
+    ],
+    "cells_x": 0,
+    "cells_y": 0,
+    "inside_label_text_style": "Flush (inlaid)",
+    "inside_label_text_size": -1,
+    "inside_label_text_height": 0,
+    "inside_label_text_font": ""
+  },
+  "expect": {
+    "reply": {
+      "result": {
+        "body": "Test bin"
+      }
+    },
+    "model": {
+      "body_count": 2
+    }
+  }
+}

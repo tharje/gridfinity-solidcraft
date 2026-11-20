@@ -813,8 +813,9 @@ pub fn apply_edits(params: &Value, edits: &Value) -> Value {
     if !p.is_object() {
         p = json!({});
     }
-    for key in ["width", "depth", "height"] {
-        if let Some(v) = edits.get(key).and_then(|v| v.as_u64()).filter(|&v| v > 0) {
+    // the form calls width and depth cells_x and cells_y, so they sort together at the top
+    for (key, keys) in [("width", ["cells_x", "width"]), ("depth", ["cells_y", "depth"]), ("height", ["height", "height"])] {
+        if let Some(v) = keys.iter().find_map(|k| edits.get(*k).and_then(|v| v.as_u64()).filter(|&v| v > 0)) {
             p[key] = json!(v);
         }
     }
@@ -826,8 +827,21 @@ pub fn apply_edits(params: &Value, edits: &Value) -> Value {
     if let Some(v) = edits.get("inside_scoop").and_then(|v| v.as_f64()).filter(|&v| v >= 0.0) {
         p["inside_scoop"] = json!(v);
     }
-    if let Some(v) = edits.get("inside").and_then(|v| v.as_str()).filter(|&v| v != KEEP) {
-        p["inside"] = json!(v);
+    for key in ["inside", "inside_label_text_style"] {
+        if let Some(v) = edits.get(key).and_then(|v| v.as_str()).filter(|&v| v != KEEP) {
+            p[key] = json!(v);
+        }
+    }
+    if let Some(v) = edits.get("inside_label_text_size").and_then(|v| v.as_f64()).filter(|&v| v >= 0.0) {
+        p["inside_label_text_size"] = json!(v);
+    }
+    if let Some(v) = edits.get("inside_label_text_height").and_then(|v| v.as_f64()).filter(|&v| v > 0.0) {
+        p["inside_label_text_height"] = json!(v);
+    }
+    match edits.get("inside_label_text_font").and_then(|v| v.as_str()).map(str::trim) {
+        Some("-") => p["inside_label_text_font"] = json!(""),
+        Some(f) if !f.is_empty() => p["inside_label_text_font"] = json!(f),
+        _ => {}
     }
     for key in ["holes_magnet", "holes_screw", "stacking_lip", "inside_label_tab"] {
         match edits.get(key).and_then(|v| v.as_str()) {
@@ -1638,6 +1652,23 @@ mod tests {
             "inside_scoop": -1, "inside": KEEP, "holes_magnet": KEEP, "holes_screw": KEEP, "stacking_lip": KEEP,
             "inside_label_tab": KEEP, "inside_label_text": ""});
         assert_eq!(apply_edits(&stored, &keep), stored);
+        let mut keep_text = keep.clone();
+        keep_text["inside_label_text_style"] = json!(KEEP);
+        keep_text["inside_label_text_size"] = json!(-1);
+        keep_text["inside_label_text_height"] = json!(0);
+        keep_text["inside_label_text_font"] = json!("");
+        assert_eq!(apply_edits(&stored, &keep_text), stored);
+        let mut text = keep_text.clone();
+        text["cells_x"] = json!(4);
+        text["inside_label_text_style"] = json!("Flush (inlaid)");
+        text["inside_label_text_size"] = json!(0);
+        text["inside_label_text_height"] = json!(0.6);
+        text["inside_label_text_font"] = json!("DejaVu Sans");
+        let p = apply_edits(&json!({"inside_label_text_font": "Arial", "width": 3}), &text);
+        assert_eq!(p, json!({"width": 4, "inside_label_text_style": "Flush (inlaid)", "inside_label_text_size": 0.0,
+            "inside_label_text_height": 0.6, "inside_label_text_font": "DejaVu Sans"}));
+        text["inside_label_text_font"] = json!("-");
+        assert_eq!(apply_edits(&json!({"inside_label_text_font": "Arial"}), &text)["inside_label_text_font"], json!(""));
         let mut change = keep.clone();
         change["height"] = json!(4);
         change["dividers_x"] = json!(0);

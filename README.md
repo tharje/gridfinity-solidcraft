@@ -171,18 +171,18 @@ Dimensions follow the Gridfinity spec as implemented in gridfinity-rebuilt-opens
 ([research/SPEC.md](research/SPEC.md)). Every shape was checked by exporting STL from SolidCraft and
 measuring its cross-sections. Not yet printed: please report how it fits.
 
-> Status: 1.4.0. Needs SolidCraft 0.45 or newer: the plugin keeps each bin's settings in the design
+> Status: 1.4.1. Needs SolidCraft 0.45 or newer: the plugin keeps each bin's settings in the design
 > (for Edit bin), which older versions can't. Tested with SolidCraft 0.45.0, both through
 > scripts/`solidcraft-cli` and in the desktop app's plugin dialog. SolidCraft's plugin runtime is
 > itself experimental, so other versions may refuse the package. For SolidCraft 0.43 or 0.44, use
 > [Gridfinity 1.3.1](../../releases/tag/v1.3.1).
 
 ## Install
-Download `gridfinity-1.4.0.zip` from the [latest release](../../releases/latest), then in SolidCraft:
+Download `gridfinity-1.4.1.zip` from the [latest release](../../releases/latest), then in SolidCraft:
 **Plugins › Install plugin…** (or **Preferences › Plugins**) and pick the zip. From a script:
 
 ```json
-{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.4.0.zip"}}]}
+{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.4.1.zip"}}]}
 ```
 
 Add `"replace": true` to update an installed version. You can also unpack the zip into
@@ -212,12 +212,13 @@ change: every field starts at **Keep** (0 or -1 for numbers), which keeps the bi
 removes the old bin (its folder in the History bar and its parameters) and makes it again in the same
 place, with the same name, or the new automatic name with the new size. A height or label text
 changed in **Parameters** since is kept too. Label text: leave it empty to keep the texts, or type
-`-` to remove them. If the new settings don't work (two labels for one compartment), nothing is
+`-` to remove them. The label text's style (raised or flush, for a label in two colours), size,
+height and font can be changed too; for the font, `-` goes back to SolidCraft's built-in one. If the new settings don't work (two labels for one compartment), nothing is
 removed. It works on bins made with Gridfinity 1.4 or newer; an older bin has no settings stored, so
 make it again with **Bin**. Features you added to the bin afterwards (a fillet, a move) used the old
 bin, so they fail after an edit.
 
-| Edit bin, with the preview of a bin made one cell wider | After Run |
+| Edit bin, with the preview of the labels made flush | A bin made one cell wider with Edit bin |
 |---|---|
 | ![Edit bin dialog](docs/images/dialog-edit.png) | ![The edited bin](docs/images/gui-edit.png) |
 
@@ -266,7 +267,7 @@ run an entry with that hash ([examples/](examples/)).
 |---|---|
 | `bin` | `grid` "42 mm (full)" / "21 mm (half)" / "Custom (sizes below)", `custom_size_x`, `custom_size_y` 15–100 mm (42, Custom only), `width` up to 504 mm and 24 cells (1), `depth` (1), `height` 2–20 units (3), `inside` "Hollow" / "Eco (thin walls, hollow feet)" / "Solid (for custom cutouts)", `dividers_x` 0–10 (0), `dividers_y` 0–10 (0), `holes_magnet` (false), `holes_screw` (false), `inside_scoop` 0–40 mm (0), `inside_label_tab` (false), `inside_label_text` (labels separated by `;`), `inside_label_text_size` 0–20 mm (0: fit), `inside_label_text_height` 0.1–3 mm (0.4), `inside_label_text_style` "Raised" / "Flush (inlaid)", `inside_label_text_font` (installed font, empty: built-in), `inside_fill_height` mm (0: to the top; solid bins, from 6 mm to 1 mm under the inside top), `inside_wall` 0.4–5 mm (0: standard), `filler_left`, `filler_right`, `filler_front`, `filler_back` 0–200 mm (0), `position_x`, `position_y` mm (0, the corner of the bin with its filler), `stacking_lip` (true), `title` (body name; empty: automatic, with the real size) |
 | `baseplate` | `grid`, `custom_size_x`, `custom_size_y`, `width` (3), `depth` (3), `bottom` "Solid" / "Open (frame only)", `holes_magnet` (false, solid only), `filler_left`, `filler_right`, `filler_front`, `filler_back` 0–200 mm (0), `leftover` "Half cells" / "Solid", `position_x`, `position_y` mm (0, the corner of the plate with its filler), `title` |
-| `edit` | `bin` (one picked body: `[{"type": "body", "name": "<bin's name>"}]`), and what to change: `width`, `depth`, `height` (0: keep), `dividers_x`, `dividers_y` (-1: keep), `inside_scoop` mm (-1: keep), `inside` ("Keep" or as on `bin`), `holes_magnet`, `holes_screw`, `stacking_lip`, `inside_label_tab` ("Keep" / "Yes" / "No"), `inside_label_text` (empty: keep, `-`: none) |
+| `edit` | `bin` (one picked body: `[{"type": "body", "name": "<bin's name>"}]`), and what to change: `cells_x` (width), `cells_y` (depth), `height` (0: keep; `width` and `depth` work too), `dividers_x`, `dividers_y` (-1: keep), `inside_scoop` mm (-1: keep), `inside` ("Keep" or as on `bin`), `holes_magnet`, `holes_screw`, `stacking_lip`, `inside_label_tab` ("Keep" / "Yes" / "No"), `inside_label_text` (empty: keep, `-`: none), `inside_label_text_style` ("Keep" or as on `bin`), `inside_label_text_size` mm (-1: keep), `inside_label_text_height` mm (0: keep), `inside_label_text_font` (empty: keep, `-`: built-in) |
 | `drawer` | `drawer_width`, `drawer_depth` 15–1000 mm (300), `printer_x`, `printer_y` 50–1000 mm (256), `grid`, `custom_size_x`, `custom_size_y`, `bottom`, `holes_magnet`, `filler_x` "Even (both sides)" / "Left" / "Right", `filler_y` "Even (both sides)" / "Front" / "Back", `leftover` "Half cells" / "Solid", `piece` (0: all), `position_x`, `position_y` mm (0), `title`, `layout_sheet` (true), `floor` (SolidCraft 0.44+: one picked face, e.g. `[{"type": "face", "body": "Drawer", "index": 10}]`; sets the size and position) |
 
 Scripts may also say `"full"` / `"half"` / `"custom"` / `"open"` and use the older names `magnets`, `screws`, `name` and `origin: [x, y]`.
