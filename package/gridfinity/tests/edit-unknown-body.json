@@ -1,0 +1,28 @@
+{
+  "entry": "edit",
+  "design": "one-bin.sc",
+  "params": {
+    "width": 0,
+    "depth": 0,
+    "height": 4,
+    "dividers_x": -1,
+    "dividers_y": -1,
+    "inside_scoop": -1,
+    "inside": "Keep",
+    "holes_magnet": "Keep",
+    "holes_screw": "Keep",
+    "stacking_lip": "Keep",
+    "inside_label_tab": "Keep",
+    "inside_label_text": "",
+    "bin": [
+      {
+        "type": "body",
+        "name": "Box1"
+      }
+    ]
+  },
+  "expect": {
+    "error": "invalid_input",
+    "message": "no settings for \"Box1\""
+  }
+}

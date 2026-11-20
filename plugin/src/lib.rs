@@ -630,6 +630,11 @@ impl Runner {
         self.params = planned.iter().map(|p| (p.clone(), format!("{prefix}{p}"))).collect();
     }
 
+    /// The plan's parameter names and the names they got in the design.
+    pub fn param_names(&self) -> &std::collections::HashMap<String, String> {
+        &self.params
+    }
+
     fn fill_names(&self, v: &mut Value) {
         match v {
             Value::String(s) if s.contains('{') => {
@@ -737,6 +742,104 @@ impl Runner {
     }
 }
 
+/// What the design keeps about a part the plugin made (SolidCraft 0.45 and later): the entry and
+/// the settings it was made with, the timeline folder and features that make it, and the names
+/// its parameters got in the design. `edit` reads it back.
+pub fn stored_item(entry: &str, params: &Value, folder: Option<&Value>, features: &[Value],
+                   names: &std::collections::HashMap<String, String>) -> Value {
+    let mut p = params.clone();
+    if let Some(o) = p.as_object_mut() {
+        o.remove("floor");
+    }
+    json!({"entry": entry, "params": p, "folder": folder.cloned().unwrap_or(Value::Null),
+           "features": features, "parameters": names})
+}
+
+/// The stored part a picked body belongs to: the body itself, or one of its parts (the bodies
+/// named `<name> Label`, ...). The longest name wins, so `Bin (2)` is not taken for `Bin`.
+pub fn find_item<'a>(items: &'a Value, picked: &str) -> Option<(&'a str, &'a Value)> {
+    items.as_object()?.iter()
+        .filter(|(k, _)| picked == k.as_str() || picked.starts_with(&format!("{k} ")))
+        .max_by_key(|(k, _)| k.len())
+        .map(|(k, v)| (k.as_str(), v))
+}
+
+/// The stored settings with what was changed in Parameters since: the height (`Height_units`)
+/// and the label texts (`Label_1`, ...). `names` maps the plan's names to the design's,
+/// `list` is `parameters.list`'s `parameters`.
+pub fn with_current_values(params: &Value, names: &Value, list: &[Value]) -> Value {
+    let mut p = params.clone();
+    let current = |plan_name: &str| names.get(plan_name).and_then(|n| n.as_str())
+        .and_then(|n| list.iter().find(|q| q["name"].as_str() == Some(n)));
+    if let Some(v) = current("Height_units").and_then(|q| q["value"].as_f64()) {
+        if v.fract().abs() < 1e-9 && v >= 1.0 {
+            p["height"] = json!(v as u64);
+        }
+    }
+    let mut texts: Vec<String> = match p.get("inside_label_text").and_then(|t| t.as_str()) {
+        Some(s) if !s.trim().is_empty() => s.split(';').map(|t| t.trim().to_string()).collect(),
+        _ => vec![],
+    };
+    let mut changed = false;
+    for (plan_name, _) in names.as_object().into_iter().flatten() {
+        let Some(k) = plan_name.strip_prefix("Label_").and_then(|k| k.parse::<usize>().ok()).filter(|&k| k > 0) else { continue };
+        let Some(q) = current(plan_name) else { continue };
+        let text = q["text"].as_str().or(q["expression"].as_str()).unwrap_or_default().trim().trim_matches('"').trim().to_string();
+        if texts.len() < k {
+            texts.resize(k, String::new());
+        }
+        if texts[k - 1] != text {
+            texts[k - 1] = text;
+            changed = true;
+        }
+    }
+    if changed {
+        p["inside_label_text"] = json!(texts.join("; "));
+    }
+    p
+}
+
+/// A bin's settings with the changes asked for in `edit`: each field left at Keep keeps the
+/// bin's own value.
+pub fn apply_edits(params: &Value, edits: &Value) -> Value {
+    let mut p = params.clone();
+    if !p.is_object() {
+        p = json!({});
+    }
+    for key in ["width", "depth", "height"] {
+        if let Some(v) = edits.get(key).and_then(|v| v.as_u64()).filter(|&v| v > 0) {
+            p[key] = json!(v);
+        }
+    }
+    for key in ["dividers_x", "dividers_y"] {
+        if let Some(v) = edits.get(key).and_then(|v| v.as_i64()).filter(|&v| v >= 0) {
+            p[key] = json!(v);
+        }
+    }
+    if let Some(v) = edits.get("inside_scoop").and_then(|v| v.as_f64()).filter(|&v| v >= 0.0) {
+        p["inside_scoop"] = json!(v);
+    }
+    if let Some(v) = edits.get("inside").and_then(|v| v.as_str()).filter(|&v| v != KEEP) {
+        p["inside"] = json!(v);
+    }
+    for key in ["holes_magnet", "holes_screw", "stacking_lip", "inside_label_tab"] {
+        match edits.get(key).and_then(|v| v.as_str()) {
+            Some("Yes") => p[key] = json!(true),
+            Some("No") => p[key] = json!(false),
+            _ => {}
+        }
+    }
+    match edits.get("inside_label_text").and_then(|v| v.as_str()).map(str::trim) {
+        Some("-") => p["inside_label_text"] = json!(""),
+        Some(t) if !t.is_empty() => p["inside_label_text"] = json!(t),
+        _ => {}
+    }
+    p
+}
+
+/// The value an `edit` field has when it keeps what the bin has.
+pub const KEEP: &str = "Keep";
+
 /// `sketch.pattern.rectangular`'s arguments for an `@pattern` step over the curves `ids`.
 pub fn pattern_args(p: &Value, ids: &[Value]) -> Value {
     let (n1, n2) = (p["count"].as_u64().unwrap_or(1), p["count2"].as_u64().unwrap_or(1));
@@ -810,7 +913,7 @@ pub fn plan(entry: &str, params: &Value) -> Result<(String, Vec<Value>), String>
             })?;
             Ok((o.name.clone(), c))
         }
-        other => Err(format!("unknown entry `{other}` (use `bin`, `baseplate` or `drawer`)")),
+        other => Err(format!("unknown entry `{other}` (use `bin`, `baseplate`, `drawer` or `edit`)")),
     }
 }
 
@@ -909,70 +1012,132 @@ mod guest {
         out
     }
 
+    fn invalid_in(field: &str) -> impl Fn(String) -> PluginError + '_ {
+        move |reason| PluginError::InvalidInput(FieldFailure { field: field.into(), reason })
+    }
+
+    /// `edit`: make a stored bin again with some of its settings changed. The old bin's folder
+    /// (its sketches and features) and parameters are deleted first, so the new one gets its name.
+    fn edit(edits: &Value) -> Result<String, PluginError> {
+        let invalid = invalid_in("edit");
+        let picked = edits["bin"].get(0)
+            .and_then(|b| b["name"].as_str().or(b["body"].as_str()).or(b.as_str()))
+            .ok_or_else(|| invalid("Edit bin: pick the bin to change".into()))?.to_string();
+        let stored = host("storage.get", json!({})).map_err(&invalid)?;
+        let items = &stored["document"]["items"];
+        let Some((name, item)) = find_item(items, &picked) else {
+            return Err(invalid(format!("Edit bin: the design has no settings for \"{picked}\". Only bins made with \
+                Gridfinity 1.4 or later in SolidCraft 0.45 or later can be edited; make this one again with Gridfinity bin.")));
+        };
+        if item["entry"].as_str() != Some("bin") {
+            return Err(invalid(format!("Edit bin: \"{name}\" is a {}, not a bin.",
+                item["entry"].as_str().unwrap_or("part").replace("drawer", "drawer baseplate"))));
+        }
+        let (name, item) = (name.to_string(), item.clone());
+        let list = host("parameters.list", json!({"filter": "user"})).map_err(&invalid)?;
+        let list: Vec<Value> = list["parameters"].as_array().cloned().unwrap_or_default();
+        let params = apply_edits(&with_current_values(&item["params"], &item["parameters"], &list), edits);
+        // check the new settings before anything is deleted
+        plan("bin", &params).map_err(&invalid)?;
+        let deleted = match item["folder"].as_u64() {
+            Some(folder) => host("timeline.delete", json!({"groups": [folder]})),
+            None => host("timeline.delete", json!({"features": item["features"]})),
+        }.map_err(|e| invalid(format!("Edit bin: could not remove the old bin: {e}")))?;
+        for n in item["parameters"].as_object().into_iter().flatten().filter_map(|(_, n)| n.as_str()) {
+            let _ = host("parameters.delete", json!({"name": n}));
+        }
+        let failing = deleted["failing"].as_array().map_or(0, |f| f.len());
+        build("bin", params, Some(&name), failing)
+    }
+
+    /// Plan an entry and run it on the design; `replaces` names the stored part this one takes
+    /// the place of, and `failing` the later features that failed when it was removed.
+    fn build(entry: &str, params: Value, replaces: Option<&str>, failing: usize) -> Result<String, PluginError> {
+        let invalid = invalid_in(entry);
+        // A picked drawer floor gives the drawer's size and where the plate goes; the plate
+        // is built at z 0 and lifted onto the floor at the end.
+        let mut params = params;
+        let mut lift = 0.0;
+        if let Some(face) = picked_floor(&params).filter(|_| entry == "drawer").cloned() {
+            let (size, corner, z) = floor_rect(&face).map_err(&invalid)?;
+            params = fill_floor(&params, size, corner);
+            lift = z;
+        }
+        let (mut body, mut cmds) = plan(entry, &params).map_err(&invalid)?;
+        // A body named like one already in the design would get an automatic name
+        // ("Body2") that SolidCraft doesn't keep when it rebuilds, and the features made for
+        // it would lose it: give it a free name of its own instead.
+        let list: Value = serde_json::from_str(&commands::run("model.body_features", &json!({}).to_string())?).unwrap_or(Value::Null);
+        let list = list.get("result").unwrap_or(&list);
+        let existing: Vec<String> = list["bodies"].as_array().into_iter().flatten()
+            .filter_map(|b| b["body"].as_str().map(String::from)).collect();
+        if let Some(free) = free_name(&body, &existing) {
+            let mut p = params.clone();
+            p["title"] = json!(free);
+            (body, cmds) = plan(entry, &p).map_err(&invalid)?;
+        }
+        let total = cmds.len();
+        let mut run = Runner::default();
+        let planned = planned_params(&cmds);
+        if !planned.is_empty() {
+            let list: Value = serde_json::from_str(&commands::run("parameters.list", &json!({"filter": "user"}).to_string())?).unwrap_or(Value::Null);
+            let list = list.get("result").unwrap_or(&list);
+            let existing: Vec<String> = list["parameters"].as_array().into_iter().flatten()
+                .filter_map(|p| p["name"].as_str().map(String::from)).collect();
+            run.name_params(&planned, &existing);
+        }
+        for (i, c) in cmds.iter().enumerate() {
+            // progress and cancel checks are host calls too, and a run may make only 256
+            if i % 16 == 0 {
+                if control::cancelled() {
+                    return Err(PluginError::Cancelled);
+                }
+                control::progress(i as f32 / total as f32, &format!("Gridfinity: step {} of {total}", i + 1));
+            }
+            let (name, args) = run.prepare(c);
+            let reply = commands::run(&name, &args.to_string())?;
+            run.record(c, &serde_json::from_str(&reply).unwrap_or(Value::Null));
+        }
+        if lift.abs() > 1e-6 {
+            let list = host("model.body_features", json!({})).map_err(&invalid)?;
+            let made: Vec<&str> = list["bodies"].as_array().into_iter().flatten()
+                .filter_map(|b| b["body"].as_str()).filter(|b| !existing.iter().any(|e| e == b)).collect();
+            let reply = host("solid.move", json!({"bodies": made, "translate": [0.0, 0.0, lift]})).map_err(&invalid)?;
+            if let Some(f) = reply.get("feature") {
+                run.features.push(f.clone());
+            }
+        }
+        // One folder in the timeline, named like the body, holds everything the run made.
+        // The model is finished by now, so a folder that can't be made doesn't fail the run.
+        let mut folder = None;
+        if !run.features.is_empty() {
+            folder = host("timeline.group", json!({"name": body, "features": run.features})).ok()
+                .and_then(|r| r.get("group").cloned());
+        }
+        // The settings go in the design, so Edit bin can make it again with a change. Best
+        // effort too: without them the part is still there, it just can't be edited.
+        let mut items = json!({});
+        if let Some(old) = replaces.filter(|&old| old != body) {
+            items[old] = Value::Null;
+        }
+        items[body.as_str()] = stored_item(entry, &params, folder.as_ref(), &run.features, run.param_names());
+        let _ = host("storage.patch", json!({"patch": {"items": items}}));
+        let mut reply = json!({"body": body, "commands": total});
+        if failing > 0 {
+            reply["warning"] = json!(format!("{failing} later feature(s) used the old bin and now fail: see the timeline."));
+        }
+        Ok(reply.to_string())
+    }
+
     impl Guest for Gridfinity {
         fn execute(entry: String, params: String) -> Result<String, PluginError> {
             let params: Value = serde_json::from_str(if params.trim().is_empty() { "{}" } else { &params })
                 .map_err(|e| PluginError::InvalidInput(FieldFailure { field: "params".into(), reason: e.to_string() }))?;
-            let invalid = |reason| PluginError::InvalidInput(FieldFailure { field: entry.clone(), reason });
-            // A picked drawer floor gives the drawer's size and where the plate goes; the plate
-            // is built at z 0 and lifted onto the floor at the end.
-            let mut params = params;
-            let mut lift = 0.0;
-            if let Some(face) = picked_floor(&params).filter(|_| entry == "drawer").cloned() {
-                let (size, corner, z) = floor_rect(&face).map_err(invalid)?;
-                params = fill_floor(&params, size, corner);
-                lift = z;
+            if entry == "edit" {
+                edit(&params)
+            } else {
+                build(&entry, params, None, 0)
             }
-            let (mut body, mut cmds) = plan(&entry, &params).map_err(invalid)?;
-            // A body named like one already in the design would get an automatic name
-            // ("Body2") that SolidCraft doesn't keep when it rebuilds, and the features made for
-            // it would lose it: give it a free name of its own instead.
-            let list: Value = serde_json::from_str(&commands::run("model.body_features", &json!({}).to_string())?).unwrap_or(Value::Null);
-            let list = list.get("result").unwrap_or(&list);
-            let existing: Vec<String> = list["bodies"].as_array().into_iter().flatten()
-                .filter_map(|b| b["body"].as_str().map(String::from)).collect();
-            if let Some(free) = free_name(&body, &existing) {
-                let mut p = params.clone();
-                p["title"] = json!(free);
-                (body, cmds) = plan(&entry, &p).map_err(invalid)?;
-            }
-            let total = cmds.len();
-            let mut run = Runner::default();
-            let planned = planned_params(&cmds);
-            if !planned.is_empty() {
-                let list: Value = serde_json::from_str(&commands::run("parameters.list", &json!({"filter": "user"}).to_string())?).unwrap_or(Value::Null);
-                let list = list.get("result").unwrap_or(&list);
-                let existing: Vec<String> = list["parameters"].as_array().into_iter().flatten()
-                    .filter_map(|p| p["name"].as_str().map(String::from)).collect();
-                run.name_params(&planned, &existing);
-            }
-            for (i, c) in cmds.iter().enumerate() {
-                // progress and cancel checks are host calls too, and a run may make only 256
-                if i % 16 == 0 {
-                    if control::cancelled() {
-                        return Err(PluginError::Cancelled);
-                    }
-                    control::progress(i as f32 / total as f32, &format!("Gridfinity: step {} of {total}", i + 1));
-                }
-                let (name, args) = run.prepare(c);
-                let reply = commands::run(&name, &args.to_string())?;
-                run.record(c, &serde_json::from_str(&reply).unwrap_or(Value::Null));
-            }
-            if lift.abs() > 1e-6 {
-                let list = host("model.body_features", json!({})).map_err(invalid)?;
-                let made: Vec<&str> = list["bodies"].as_array().into_iter().flatten()
-                    .filter_map(|b| b["body"].as_str()).filter(|b| !existing.iter().any(|e| e == b)).collect();
-                let reply = host("solid.move", json!({"bodies": made, "translate": [0.0, 0.0, lift]})).map_err(invalid)?;
-                if let Some(f) = reply.get("feature") {
-                    run.features.push(f.clone());
-                }
-            }
-            // One folder in the timeline, named like the body, holds everything the run made.
-            // The model is finished by now, so a folder that can't be made doesn't fail the run.
-            if !run.features.is_empty() {
-                let _ = commands::run("timeline.group", &json!({"name": body, "features": run.features}).to_string());
-            }
-            Ok(json!({"body": body, "commands": total}).to_string())
         }
     }
 
@@ -1384,5 +1549,56 @@ mod tests {
         assert!(plan("bin", &json!({"inside": solid, "height": 6, "inside_fill_height": 5})).unwrap_err().contains("Fill height"));
         assert!(plan("bin", &json!({"inside": solid, "height": 6, "inside_fill_height": top})).is_err());
         assert!(plan("bin", &json!({"inside": solid, "height": 6, "inside_fill_height": top - 1.0})).is_ok());
+    }
+
+    #[test]
+    fn edit_keeps_what_is_left_at_keep_and_changes_the_rest() {
+        let stored = json!({"width": 3, "depth": 2, "height": 6, "holes_magnet": true, "dividers_x": 2, "inside_label_text": "A; B; C"});
+        let keep = json!({"bin": [{"type": "body", "name": "B"}], "width": 0, "depth": 0, "height": 0, "dividers_x": -1, "dividers_y": -1,
+            "inside_scoop": -1, "inside": KEEP, "holes_magnet": KEEP, "holes_screw": KEEP, "stacking_lip": KEEP,
+            "inside_label_tab": KEEP, "inside_label_text": ""});
+        assert_eq!(apply_edits(&stored, &keep), stored);
+        let mut change = keep.clone();
+        change["height"] = json!(4);
+        change["dividers_x"] = json!(0);
+        change["holes_magnet"] = json!("No");
+        change["inside"] = json!("Eco (thin walls, hollow feet)");
+        change["inside_label_text"] = json!("-");
+        let p = apply_edits(&stored, &change);
+        assert_eq!(p, json!({"width": 3, "depth": 2, "height": 4, "holes_magnet": false, "dividers_x": 0,
+            "inside_label_text": "", "inside": "Eco (thin walls, hollow feet)"}));
+        assert!(plan("bin", &p).is_ok());
+    }
+
+    #[test]
+    fn edit_takes_the_height_and_labels_changed_in_parameters() {
+        let stored = json!({"width": 3, "height": 6, "dividers_x": 2, "inside_label_text": "A; ; C"});
+        let names = json!({"Height_units": "Bin2_Height_units", "Label_1": "Bin2_Label_1", "Label_3": "Bin2_Label_3"});
+        let list = vec![json!({"name": "Height_units", "value": 9.0, "expression": "9"}),
+            json!({"name": "Bin2_Height_units", "value": 5.0, "expression": "5"}),
+            json!({"name": "Bin2_Label_1", "expression": "\"M3\"", "value": 0.0}),
+            json!({"name": "Bin2_Label_3", "expression": "C", "value": 0.0})];
+        let p = with_current_values(&stored, &names, &list);
+        assert_eq!(p["height"], json!(5));
+        assert_eq!(p["inside_label_text"], json!("M3; ; C"));
+        // nothing changed in Parameters: the settings as stored
+        let list = vec![json!({"name": "Bin2_Height_units", "value": 6.0}), json!({"name": "Bin2_Label_1", "expression": "A"}),
+            json!({"name": "Bin2_Label_3", "expression": "C"})];
+        assert_eq!(with_current_values(&stored, &names, &list), stored);
+    }
+
+    #[test]
+    fn a_picked_body_finds_its_bin() {
+        let items = json!({"Bin": {"entry": "bin"}, "Bin (2)": {"entry": "bin", "n": 2}, "Plate": {"entry": "baseplate"}});
+        assert_eq!(find_item(&items, "Bin").unwrap().0, "Bin");
+        assert_eq!(find_item(&items, "Bin (2)").unwrap().0, "Bin (2)");
+        assert_eq!(find_item(&items, "Bin (2) Label").unwrap().0, "Bin (2)");
+        assert_eq!(find_item(&items, "Bin Label").unwrap().0, "Bin");
+        assert!(find_item(&items, "Binder").is_none());
+        assert!(find_item(&Value::Null, "Bin").is_none());
+        let names = std::collections::HashMap::from([("Height_units".to_string(), "Height_units".to_string())]);
+        let s = stored_item("drawer", &json!({"floor": [{}], "drawer_width": 300}), Some(&json!(7)), &[json!(1), json!(2)], &names);
+        assert_eq!(s, json!({"entry": "drawer", "params": {"drawer_width": 300}, "folder": 7, "features": [1, 2],
+            "parameters": {"Height_units": "Height_units"}}));
     }
 }

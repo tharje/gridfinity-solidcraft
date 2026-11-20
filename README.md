@@ -24,6 +24,8 @@ one undo step, editable afterwards, and they keep working without the plugin.
   (`inside_scoop`, mm), so small parts slide out, and a 12 mm shelf along the back wall at the top
   (`inside_label_tab`) for a label. Both follow the dividers; with them a bin can have up to 36
   compartments in one run.
+- **Edit bin** (SolidCraft 0.45): click a bin and change some of its settings; the rest stay as
+  they were (see [Edit bin](#edit-bin)).
 - **Label text** (`inside_label_text`): text on the label tabs, one label per compartment
   separated by `;` (back row first, left to right; `M3x6; M3x8;; Washers` leaves the third one
   empty). It is a body of its own, so you can print it in another filament: in the slicer, give the
@@ -159,20 +161,18 @@ Dimensions follow the Gridfinity spec as implemented in gridfinity-rebuilt-opens
 ([research/SPEC.md](research/SPEC.md)). Every shape was checked by exporting STL from SolidCraft and
 measuring its cross-sections. Not yet printed: please report how it fits.
 
-> Status: 1.3.1. Tested with SolidCraft 0.43.0 and 0.44.1, both through scripts/`solidcraft-cli` and in
-> the desktop app's plugin dialog. SolidCraft's plugin runtime is itself experimental, so other
-> versions may refuse the package.
->
-> The drawer baseplate needs SolidCraft 0.44 or newer in the desktop app: 0.43 can't open its
-> form because of the Drawer floor field. Bins and baseplates work in 0.43, and scripts can use
-> all three there.
+> Status: 1.4.0. Needs SolidCraft 0.45 or newer: the plugin keeps each bin's settings in the design
+> (for Edit bin), which older versions can't. Tested with SolidCraft 0.45.0, both through
+> scripts/`solidcraft-cli` and in the desktop app's plugin dialog. SolidCraft's plugin runtime is
+> itself experimental, so other versions may refuse the package. For SolidCraft 0.43 or 0.44, use
+> [Gridfinity 1.3.1](../../releases/tag/v1.3.1).
 
 ## Install
-Download `gridfinity-1.3.1.zip` from the [latest release](../../releases/latest), then in SolidCraft:
+Download `gridfinity-1.4.0.zip` from the [latest release](../../releases/latest), then in SolidCraft:
 **Plugins › Install plugin…** (or **Preferences › Plugins**) and pick the zip. From a script:
 
 ```json
-{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.3.1.zip"}}]}
+{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.4.0.zip"}}]}
 ```
 
 Add `"replace": true` to update an installed version. You can also unpack the zip into
@@ -195,6 +195,25 @@ the History bar, in one folder named like the body (open the folder to edit a si
 | ![Plugins menu](docs/images/plugins-menu.png) | ![Bin dialog](docs/images/dialog-bin.png) |
 
 ![A bin on a custom 40 × 25 mm grid in SolidCraft after Run](docs/images/gui-custom-bin.png)
+
+### Edit bin
+**Edit bin** changes a bin the plugin made. Press it, click the bin, and change only what should
+change: every field starts at **Keep** (0 or -1 for numbers), which keeps the bin's own value. Run
+removes the old bin (its folder in the History bar and its parameters) and makes it again in the same
+place, with the same name, or the new automatic name with the new size. A height or label text
+changed in **Parameters** since is kept too. Label text: leave it empty to keep the texts, or type
+`-` to remove them. If the new settings don't work (two labels for one compartment), nothing is
+removed. It works on bins made with Gridfinity 1.4 or newer; an older bin has no settings stored, so
+make it again with **Bin**. Features you added to the bin afterwards (a fillet, a move) used the old
+bin, so they fail after an edit.
+
+| Edit bin, with the preview of a bin made one cell wider | After Run |
+|---|---|
+| ![Edit bin dialog](docs/images/dialog-edit.png) | ![The edited bin](docs/images/gui-edit.png) |
+
+In SolidCraft 0.45 the assistant chat and MCP clients see the plugin's entries as tools
+(`gridfinity.bin`, `gridfinity.baseplate`, `gridfinity.drawer`, `gridfinity.edit`), so you can ask
+for "a Gridfinity bin 3 × 2 with magnet holes"; the assistant asks before each run.
 
 | The drawer baseplate form | Its four pieces in SolidCraft |
 |---|---|
@@ -237,6 +256,7 @@ run an entry with that hash ([examples/](examples/)).
 |---|---|
 | `bin` | `grid` "42 mm (full)" / "21 mm (half)" / "Custom (sizes below)", `custom_size_x`, `custom_size_y` 15–100 mm (42, Custom only), `width` up to 504 mm and 24 cells (1), `depth` (1), `height` 2–20 units (3), `inside` "Hollow" / "Eco (thin walls, hollow feet)" / "Solid (for custom cutouts)", `dividers_x` 0–10 (0), `dividers_y` 0–10 (0), `holes_magnet` (false), `holes_screw` (false), `inside_scoop` 0–40 mm (0), `inside_label_tab` (false), `inside_label_text` (labels separated by `;`), `inside_label_text_size` 0–20 mm (0: fit), `inside_label_text_height` 0.1–3 mm (0.4), `inside_label_text_style` "Raised" / "Flush (inlaid)", `inside_label_text_font` (installed font, empty: built-in), `inside_fill_height` mm (0: to the top; solid bins, from 6 mm to 1 mm under the inside top), `inside_wall` 0.4–5 mm (0: standard), `filler_left`, `filler_right`, `filler_front`, `filler_back` 0–200 mm (0), `position_x`, `position_y` mm (0, the corner of the bin with its filler), `stacking_lip` (true), `title` (body name; empty: automatic, with the real size) |
 | `baseplate` | `grid`, `custom_size_x`, `custom_size_y`, `width` (3), `depth` (3), `bottom` "Solid" / "Open (frame only)", `holes_magnet` (false, solid only), `filler_left`, `filler_right`, `filler_front`, `filler_back` 0–200 mm (0), `leftover` "Half cells" / "Solid", `position_x`, `position_y` mm (0, the corner of the plate with its filler), `title` |
+| `edit` | `bin` (one picked body: `[{"type": "body", "name": "<bin's name>"}]`), and what to change: `width`, `depth`, `height` (0: keep), `dividers_x`, `dividers_y` (-1: keep), `inside_scoop` mm (-1: keep), `inside` ("Keep" or as on `bin`), `holes_magnet`, `holes_screw`, `stacking_lip`, `inside_label_tab` ("Keep" / "Yes" / "No"), `inside_label_text` (empty: keep, `-`: none) |
 | `drawer` | `drawer_width`, `drawer_depth` 15–1000 mm (300), `printer_x`, `printer_y` 50–1000 mm (256), `grid`, `custom_size_x`, `custom_size_y`, `bottom`, `holes_magnet`, `filler_x` "Even (both sides)" / "Left" / "Right", `filler_y` "Even (both sides)" / "Front" / "Back", `leftover` "Half cells" / "Solid", `piece` (0: all), `position_x`, `position_y` mm (0), `title`, `floor` (SolidCraft 0.44+: one picked face, e.g. `[{"type": "face", "body": "Drawer", "index": 10}]`; sets the size and position) |
 
 Scripts may also say `"full"` / `"half"` / `"custom"` / `"open"` and use the older names `magnets`, `screws`, `name` and `origin: [x, y]`.

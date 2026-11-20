@@ -1,9 +1,9 @@
 {
  "id": "gridfinity",
  "name": "Gridfinity",
- "version": "1.3.1",
- "description": "Gridfinity bins (hollow, eco or solid for custom cutouts), baseplates and drawer baseplates split to fit your printer, on a full, half or custom grid.",
- "capabilities": ["commands@0.1"],
+ "version": "1.4.0",
+ "description": "Gridfinity bins (hollow, eco or solid), baseplates, and drawer baseplates split to fit your printer or a picked drawer floor, on a full, half or custom grid. Edit bin changes a bin it made, keeping each setting left at Keep.",
+ "capabilities": ["commands@0.1", "storage@0.1"],
  "runtime": {
   "module": "plugin.wasm",
   "entries": [
@@ -102,9 +102,35 @@
      "x-solidcraft-icon": "i/drawer.svg"
     },
     "slots": [{"kind": "menu", "name": "Gridfinity drawer baseplate"}, {"kind": "ribbon", "name": "Drawer plate"}]
+   },
+   {
+    "name": "edit",
+    "effect": "edit",
+    "input_schema": {
+     "type": "object",
+     "required": ["bin"],
+     "properties": {
+      "bin": {"type": "array", "title": "Bin", "description": "Click the bin to change. Its settings come from when it was made (Gridfinity 1.4 or later), with the height and label texts as they are now in Parameters", "minItems": 1, "maxItems": 1, "x-solidcraft-selection": {"version": 1, "accept": ["body"]}},
+      "width": {"type": "integer", "title": "Width (cells)", "description": "0 keeps the bin's width", "minimum": 0, "maximum": 24, "default": 0},
+      "depth": {"type": "integer", "title": "Depth (cells)", "description": "0 keeps the bin's depth", "minimum": 0, "maximum": 24, "default": 0},
+      "height": {"type": "integer", "title": "Height (units)", "description": "Height units, 7 mm each. 0 keeps the bin's height", "minimum": 0, "maximum": 20, "default": 0},
+      "dividers_x": {"type": "integer", "title": "Dividers across X", "description": "-1 keeps the bin's dividers", "minimum": -1, "maximum": 10, "default": -1},
+      "dividers_y": {"type": "integer", "title": "Dividers across Y", "description": "-1 keeps the bin's dividers", "minimum": -1, "maximum": 10, "default": -1},
+      "inside": {"type": "string", "title": "Inside", "description": "Keep, or Hollow, Eco or Solid as on Gridfinity bin", "enum": ["Keep", "Hollow", "Eco (thin walls, hollow feet)", "Solid (for custom cutouts)"], "default": "Keep"},
+      "inside_scoop": {"type": "number", "title": "Scoop", "description": "Rounded floor along the front wall of each compartment. Radius in mm, 0 = none, -1 keeps the bin's scoop", "minimum": -1, "maximum": 40, "default": -1, "unit": "mm"},
+      "inside_label_tab": {"type": "string", "title": "Label tab", "description": "Keep, or a 12 mm label shelf along the back wall of each compartment (Yes) or none (No)", "enum": ["Keep", "Yes", "No"], "default": "Keep"},
+      "inside_label_text": {"type": "string", "title": "Label text (a; b; c)", "description": "New label texts, one per compartment separated by ;. Empty keeps the texts, a single - removes them", "maxLength": 400, "default": ""},
+      "holes_magnet": {"type": "string", "title": "Magnet holes", "description": "Keep, or 6.5 x 2.4 mm magnet holes in every foot (Yes) or none (No)", "enum": ["Keep", "Yes", "No"], "default": "Keep"},
+      "holes_screw": {"type": "string", "title": "Screw holes", "description": "Keep, or 3 mm holes in every foot (Yes) or none (No)", "enum": ["Keep", "Yes", "No"], "default": "Keep"},
+      "stacking_lip": {"type": "string", "title": "Stacking lip", "description": "Keep, or the lip on top that the next bin stacks in (Yes) or none (No)", "enum": ["Keep", "Yes", "No"], "default": "Keep"}
+     },
+     "x-solidcraft-icon": "i/edit.svg"
+    },
+    "slots": [{"kind": "menu", "name": "Edit Gridfinity bin"}, {"kind": "ribbon", "name": "Edit bin"}]
    }
   ],
-  "commands": ["sketch.create", "sketch.rectangle.rounded", "sketch.circle.center", "sketch.finish", "solid.extrude", "solid.box", "sketch.line", "sketch.pattern.rectangular", "solid.move", "solid.pattern.rectangular", "solid.combine", "sketch.rectangle.two_point", "sketch.text", "parameters.add", "parameters.list", "model.body_features", "timeline.group", "model.faces", "model.edges", "inspect.measure"],
+  "commands": ["sketch.create", "sketch.rectangle.rounded", "sketch.circle.center", "sketch.finish", "solid.extrude", "solid.box", "sketch.line", "sketch.pattern.rectangular", "solid.move", "solid.pattern.rectangular", "solid.combine", "sketch.rectangle.two_point", "sketch.text", "parameters.add", "parameters.list", "model.body_features", "timeline.group", "model.faces", "model.edges", "inspect.measure", "storage.get", "storage.patch", "timeline.delete", "parameters.delete"],
+  "data_format": 1,
   "limits": {"fuel": 2000000000, "memory_mib": 64, "deadline_ms": 30000}
  }
 }
