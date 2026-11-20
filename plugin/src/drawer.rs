@@ -209,6 +209,29 @@ pub fn pieces(o: &DrawerOptions, pl: &DrawerPlan) -> Vec<Piece> {
     v
 }
 
+/// A piece's label on the layout sheet: its number (along X, then Y, from 1), the centre of the
+/// pocket in its middle, where the label goes so no grid line crosses it, and its size with the tabs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Label {
+    pub number: usize,
+    pub at: [f64; 2],
+    pub size: [f64; 2],
+}
+
+pub fn labels(o: &DrawerOptions, pl: &DrawerPlan) -> Vec<Label> {
+    let (wx, wy) = (pl.axes[0].widths(o.pitch[0]), pl.axes[1].widths(o.pitch[1]));
+    let kx = wx.len();
+    pieces(o, pl).iter().enumerate().map(|(n, p)| {
+        let (i, j) = (n % kx, n / kx);
+        let mid = |k: u32, pitch: f64| ((k - 1) / 2) as f64 * pitch + pitch / 2.0;
+        Label {
+            number: n + 1,
+            at: [p.cells.corner[0] + mid(p.cells.nx, p.cells.pitch[0]), p.cells.corner[1] + mid(p.cells.ny, p.cells.pitch[1])],
+            size: [wx[i], wy[j]],
+        }
+    }).collect()
+}
+
 /// Half cells the run builds: all of the drawer's, or one piece's.
 pub fn built_half_cells(o: &DrawerOptions, pl: &DrawerPlan) -> u32 {
     let all = pieces(o, pl);
@@ -292,6 +315,26 @@ mod tests {
     fn opts(drawer: [f64; 2], bed: [f64; 2]) -> DrawerOptions {
         DrawerOptions { drawer, bed, pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false, open: false, magnets: false,
                         origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "Drawer".into(), piece: 0 }
+    }
+
+    #[test]
+    fn labels_sit_in_a_middle_pocket_and_count_along_x_first() {
+        let o = opts([400.0, 300.0], [256.0, 256.0]);
+        let pl = plan(&o).unwrap();
+        let l = labels(&o, &pl);
+        assert_eq!(l.len(), 4);
+        assert_eq!(l.iter().map(|l| l.number).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
+        // piece 2 is to the right of piece 1, piece 3 behind it
+        assert!(l[1].at[0] > l[0].at[0] && (l[1].at[1] - l[0].at[1]).abs() < 1e-9);
+        assert!(l[2].at[1] > l[0].at[1] && (l[2].at[0] - l[0].at[0]).abs() < 1e-9);
+        // a pocket's centre: half a pitch past a grid line
+        let ps = pieces(&o, &pl);
+        for (p, l) in ps.iter().zip(&l) {
+            let k = (l.at[0] - p.cells.corner[0]) / PITCH - 0.5;
+            assert!((k - k.round()).abs() < 1e-9 && k >= 0.0 && k < p.cells.nx as f64);
+        }
+        let w: f64 = pl.axes[0].widths(PITCH).iter().sum();
+        assert!((l[0].size[0] + l[1].size[0] - w).abs() < 1e-9);
     }
 
     #[test]

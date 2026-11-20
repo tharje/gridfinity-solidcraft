@@ -614,6 +614,13 @@ pub fn free_name(name: &str, existing: &[String]) -> Option<String> {
     (2..).map(|k| format!("{name} ({k})")).find(|n| !taken(n))
 }
 
+/// The body a drawer run that builds one piece makes (`<name> 2-1`), or None for any other run.
+pub fn piece_body(entry: &str, params: &Value) -> Option<String> {
+    let o = parse_drawer(params).ok().filter(|o| entry == "drawer" && o.piece > 0)?;
+    let pl = drawer::plan(&o).ok()?;
+    drawer::pieces(&o, &pl).get(o.piece as usize - 1).map(|p| p.name.clone())
+}
+
 /// The text parameters a plan adds.
 pub fn planned_params(cmds: &[Value]) -> Vec<String> {
     cmds.iter().filter(|c| c["command"] == "parameters.add")
@@ -927,9 +934,21 @@ mod guest {
 
     struct Gridfinity;
 
+    /// Host calls made in this run: SolidCraft allows 256, progress and cancel checks included.
+    static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    fn run_cmd(c: &str, a: &str) -> Result<String, PluginError> {
+        CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        commands::run(c, &a.to_string())
+    }
+
+    fn calls_left() -> usize {
+        256usize.saturating_sub(CALLS.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
     /// Runs a host command and returns its result.
     fn host(c: &str, a: Value) -> Result<Value, String> {
-        let r: Value = serde_json::from_str(&commands::run(c, &a.to_string()).map_err(|e| format!("{c}: {e:?}"))?).unwrap_or(Value::Null);
+        let r: Value = serde_json::from_str(&run_cmd(c, &a.to_string()).map_err(|e| format!("{c}: {e:?}"))?).unwrap_or(Value::Null);
         Ok(r.get("result").cloned().unwrap_or(r))
     }
 
@@ -1050,6 +1069,49 @@ mod guest {
         build("bin", params, Some(&name), failing)
     }
 
+    /// A drawing of the drawer's pieces from above, each with its number and size in the pocket
+    /// in its middle, so the pieces can be laid in the drawer in order. The drawing is the last
+    /// thing the run makes; without room for it in the run's host calls, there is none. The view
+    /// is shaded: as lines, a drawer of 9 pieces is more than a sheet takes (100000 records).
+    fn layout_sheet(o: &DrawerOptions) -> Result<(), String> {
+        let pl = drawer::plan(o)?;
+        let labels = drawer::labels(o, &pl);
+        if calls_left() < 2 * labels.len() + 6 {
+            return Err("this run has no host calls left for it".into());
+        }
+        let d = host("drawing.create", json!({"name": format!("{} layout", o.name), "template": "iso-a3-part",
+            "first_sheet_paper": {"size": {"standard": "a3"}, "orientation": "landscape"}}))?;
+        let made = (|| {
+            let sheet = d["sheets"][0]["id"].clone();
+            let v = host("drawing.view.base", json!({"sheet": sheet, "view": "top", "visual_style": "shaded"}))?;
+            let view = v["view"].clone();
+            let scale = v["scale"]["factor"].as_f64().ok_or("no scale")?;
+            let e = host("drawing.view.inspect", json!({"view": view}))?["extents"].clone();
+            let f = |k: &str, i: usize| e[k][i].as_f64().unwrap_or(0.0);
+            let centre = [(f("min", 0) + f("max", 0)) / 2.0, (f("min", 1) + f("max", 1)) / 2.0];
+            let pocket = o.pitch[0].min(o.pitch[1]) * scale;
+            for l in &labels {
+                let at = [(l.at[0] - centre[0]) * scale, (l.at[1] - centre[1]) * scale];
+                let size = format!("{} x {}", mm(l.size[0]), mm(l.size[1]));
+                let big = (pocket * 0.35).clamp(2.5, 10.0);
+                let small = (pocket * 0.13).min(pocket * 0.65 / (0.6 * size.len() as f64)).clamp(1.8, 5.0);
+                host("drawing.note.add", json!({"anchor": {"view": view}, "at": [geometry::r4(at[0]), geometry::r4(at[1] + pocket * 0.12)],
+                    "content": l.number.to_string(), "cap_mm": geometry::r4(big)}))?;
+                host("drawing.note.add", json!({"anchor": {"view": view}, "at": [geometry::r4(at[0]), geometry::r4(at[1] - pocket * 0.25)],
+                    "content": size, "cap_mm": geometry::r4(small)}))?;
+            }
+            let low = v["boundary_mm"]["min"].clone();
+            let high = v["boundary_mm"]["max"].clone();
+            let x = (low[0].as_f64().unwrap_or(0.0) + high[0].as_f64().unwrap_or(0.0)) / 2.0;
+            host("drawing.note.add", json!({"anchor": {"sheet": sheet}, "at": [geometry::r4(x), geometry::r4(low[1].as_f64().unwrap_or(20.0) - 8.0)],
+                "content": format!("{}: {} pieces, numbered along X, then Y, from the front left. Sizes in mm, with the tabs.",
+                    o.name, labels.len()), "cap_mm": 3.5}))?;
+            Ok::<(), String>(())
+        })();
+        let _ = host("drawing.close", json!({}));
+        made
+    }
+
     /// Plan an entry and run it on the design; `replaces` names the stored part this one takes
     /// the place of, and `failing` the later features that failed when it was removed.
     fn build(entry: &str, params: Value, replaces: Option<&str>, failing: usize) -> Result<String, PluginError> {
@@ -1067,11 +1129,17 @@ mod guest {
         // A body named like one already in the design would get an automatic name
         // ("Body2") that SolidCraft doesn't keep when it rebuilds, and the features made for
         // it would lose it: give it a free name of its own instead.
-        let list: Value = serde_json::from_str(&commands::run("model.body_features", &json!({}).to_string())?).unwrap_or(Value::Null);
+        let list: Value = serde_json::from_str(&run_cmd("model.body_features", &json!({}).to_string())?).unwrap_or(Value::Null);
         let list = list.get("result").unwrap_or(&list);
         let existing: Vec<String> = list["bodies"].as_array().into_iter().flatten()
             .filter_map(|b| b["body"].as_str().map(String::from)).collect();
-        if let Some(free) = free_name(&body, &existing) {
+        // A drawer built a piece at a time: the other pieces already there have its name, and
+        // only the piece itself being there again means another drawer.
+        let taken = match piece_body(entry, &params) {
+            Some(piece) => existing.iter().any(|e| e.eq_ignore_ascii_case(&piece)),
+            None => true,
+        };
+        if let Some(free) = free_name(&body, &existing).filter(|_| taken) {
             let mut p = params.clone();
             p["title"] = json!(free);
             (body, cmds) = plan(entry, &p).map_err(&invalid)?;
@@ -1080,7 +1148,7 @@ mod guest {
         let mut run = Runner::default();
         let planned = planned_params(&cmds);
         if !planned.is_empty() {
-            let list: Value = serde_json::from_str(&commands::run("parameters.list", &json!({"filter": "user"}).to_string())?).unwrap_or(Value::Null);
+            let list: Value = serde_json::from_str(&run_cmd("parameters.list", &json!({"filter": "user"}).to_string())?).unwrap_or(Value::Null);
             let list = list.get("result").unwrap_or(&list);
             let existing: Vec<String> = list["parameters"].as_array().into_iter().flatten()
                 .filter_map(|p| p["name"].as_str().map(String::from)).collect();
@@ -1089,13 +1157,14 @@ mod guest {
         for (i, c) in cmds.iter().enumerate() {
             // progress and cancel checks are host calls too, and a run may make only 256
             if i % 16 == 0 {
+                CALLS.fetch_add(2, std::sync::atomic::Ordering::Relaxed);
                 if control::cancelled() {
                     return Err(PluginError::Cancelled);
                 }
                 control::progress(i as f32 / total as f32, &format!("Gridfinity: step {} of {total}", i + 1));
             }
             let (name, args) = run.prepare(c);
-            let reply = commands::run(&name, &args.to_string())?;
+            let reply = run_cmd(&name, &args.to_string())?;
             run.record(c, &serde_json::from_str(&reply).unwrap_or(Value::Null));
         }
         if lift.abs() > 1e-6 {
@@ -1123,6 +1192,17 @@ mod guest {
         items[body.as_str()] = stored_item(entry, &params, folder.as_ref(), &run.features, run.param_names());
         let _ = host("storage.patch", json!({"patch": {"items": items}}));
         let mut reply = json!({"body": body, "commands": total});
+        if entry == "drawer" && params.get("layout_sheet").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if let Ok(o) = parse_drawer(&params).map(|o| DrawerOptions { name: body.clone(), ..o }) {
+                // with every piece built: in this run, or this run builds the last one
+                let count = drawer::plan(&o).map(|pl| pl.axes[0].pieces.len() * pl.axes[1].pieces.len()).unwrap_or(0);
+                if o.piece == 0 || o.piece as usize == count {
+                    if let Some(why) = layout_sheet(&DrawerOptions { piece: 0, ..o }).err() {
+                        reply["warning"] = json!(format!("No layout sheet: {why}"));
+                    }
+                }
+            }
+        }
         if failing > 0 {
             reply["warning"] = json!(format!("{failing} later feature(s) used the old bin and now fail: see the timeline."));
         }
@@ -1585,6 +1665,14 @@ mod tests {
         let list = vec![json!({"name": "Bin2_Height_units", "value": 6.0}), json!({"name": "Bin2_Label_1", "expression": "A"}),
             json!({"name": "Bin2_Label_3", "expression": "C"})];
         assert_eq!(with_current_values(&stored, &names, &list), stored);
+    }
+
+    #[test]
+    fn a_drawer_built_a_piece_at_a_time_keeps_its_name() {
+        let d = json!({"drawer_width": 600, "drawer_depth": 500, "piece": 2});
+        assert_eq!(piece_body("drawer", &d).as_deref(), Some("Gridfinity drawer 600x500 2-1"));
+        assert_eq!(piece_body("drawer", &json!({"drawer_width": 600, "drawer_depth": 500})), None);
+        assert_eq!(piece_body("bin", &d), None);
     }
 
     #[test]
