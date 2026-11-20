@@ -25,6 +25,28 @@ pub const TAB_HEAD: f64 = 4.5;
 pub const CLEARANCE: f64 = 0.05;
 /// Gap above a tab, so the piece with the sockets still sits flat.
 pub const CLEARANCE_TOP: f64 = 0.15;
+/// An open frame (no floor) is too thin round its sockets to be pressed together: a tab that
+/// comes down a little off bends the socket's edge, and then it won't go in at all. Its tabs
+/// and sockets get more room and lean in towards the top (`LEAD_IN` degrees), so a tab finds its
+/// socket by itself and the gap round it stays the same all the way up.
+pub const CLEARANCE_OPEN: f64 = 0.15;
+pub const LEAD_IN: f64 = 15.0;
+/// How far back from the seam a leaning tab and socket start (mm): more than the lean moves in
+/// over a tab's height.
+pub const LEAN_BACK: f64 = 1.0;
+
+/// A tab (`grow` 0) or its socket: straight, or leaning and starting further back.
+fn joint_shape(axis: usize, s: f64, c: f64, grow: f64, lean: Option<f64>) -> Vec<[f64; 2]> {
+    match lean {
+        Some(_) => dovetail_from(axis, s, c, grow, s - LEAN_BACK),
+        None => dovetail(axis, s, c, grow),
+    }
+}
+
+/// The gap round a tab in its socket, and the taper of both (None: straight).
+pub fn joint(open: bool) -> (f64, Option<f64>) {
+    if open { (CLEARANCE_OPEN, Some(-LEAD_IN)) } else { (CLEARANCE, None) }
+}
 
 /// Height of a baseplate: an open frame is just the pocket profile high (the pockets end at its
 /// underside); a solid one keeps a floor, thicker with magnet or screw holes. With both, the
@@ -72,11 +94,18 @@ pub fn tab_height(h: f64) -> f64 {
 /// Points of a dovetail tab (or, with `grow`, its socket) on a seam at `s` along `axis`
 /// (0: a seam across X, the tab reaching +X; 1: across Y, reaching +Y), centred at `c`.
 pub fn dovetail(axis: usize, s: f64, c: f64, grow: f64) -> Vec<[f64; 2]> {
-    let slope = (TAB_HEAD - TAB_NECK) / TAB_DEPTH;
-    let widen = grow * (1.0 + slope * slope).sqrt();
     // a tab starts 0.5 mm back inside the piece it belongs to, so it joins solidly; a socket
     // starts at the seam, so cutting it leaves the other piece alone
-    let (u0, u1) = (if grow > 0.0 { s } else { s - 0.5 }, s + TAB_DEPTH + grow);
+    dovetail_from(axis, s, c, grow, if grow > 0.0 { s } else { s - 0.5 })
+}
+
+/// A dovetail as `dovetail` makes it, starting at `u0` on the side of the seam the tab comes
+/// from. A leaning tab and socket start further back (`LEAN_BACK`): the lean moves that end
+/// towards the seam as well, and it must stay past it all the way up.
+pub fn dovetail_from(axis: usize, s: f64, c: f64, grow: f64, u0: f64) -> Vec<[f64; 2]> {
+    let slope = (TAB_HEAD - TAB_NECK) / TAB_DEPTH;
+    let widen = grow * (1.0 + slope * slope).sqrt();
+    let u1 = s + TAB_DEPTH + grow;
     let half = |u: f64| TAB_NECK + slope * (u - s) + widen;
     let pts = [[u0, c - half(u0)], [u1, c - half(u1)], [u1, c + half(u1)], [u0, c + half(u0)]];
     pts.iter().map(|&[u, v]| if axis == 0 { [r4(u), r4(v)] } else { [r4(v), r4(u)] }).collect()
@@ -222,14 +251,15 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
         out.push(cmd("solid.combine", json!({"target": b, "tools": strips, "operation": "join"})));
     }
     let tab_h = tab_height(h);
+    let (gap, lean) = joint(p.open);
     let row_c = y0 + py / 2.0;
     if p.sockets[0] {
-        sketch(out, 0.0, &n("Sockets X"), vec![polygon(&dovetail(0, x0 - fl, row_c, CLEARANCE))]);
-        out.push(extrude(&n("Sockets X"), tab_h + CLEARANCE_TOP, Op::Cut(b), None, ""));
+        sketch(out, 0.0, &n("Sockets X"), vec![polygon(&joint_shape(0, x0 - fl, row_c, gap, lean))]);
+        out.push(extrude(&n("Sockets X"), tab_h + CLEARANCE_TOP, Op::Cut(b), lean, ""));
     }
     if p.tabs[0] {
-        sketch(out, 0.0, &n("Tabs X"), vec![polygon(&dovetail(0, x1 + fr, row_c, 0.0))]);
-        out.push(extrude(&n("Tabs X"), tab_h, Op::Join(b), None, ""));
+        sketch(out, 0.0, &n("Tabs X"), vec![polygon(&joint_shape(0, x1 + fr, row_c, 0.0, lean))]);
+        out.push(extrude(&n("Tabs X"), tab_h, Op::Join(b), lean, ""));
     }
     // every row; then the first (front) and last (back) rows get their own things
     let last = if ny > 1 {
@@ -262,10 +292,10 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
     let back = back + fb;
     corners(out, &n("Corners front"), &front_body, h, &[(p.round[0], [left, front], [1.0, 1.0]), (p.round[1], [right, front], [-1.0, 1.0])]);
     if p.sockets[1] {
-        let mut v = vec![polygon(&dovetail(1, front, col_c, CLEARANCE))];
+        let mut v = vec![polygon(&joint_shape(1, front, col_c, gap, lean))];
         v.extend(pattern(nx, px, 1, 0.0));
         sketch(out, 0.0, &n("Sockets Y"), v);
-        out.push(extrude(&n("Sockets Y"), tab_h + CLEARANCE_TOP, Op::Cut(b), None, ""));
+        out.push(extrude(&n("Sockets Y"), tab_h + CLEARANCE_TOP, Op::Cut(b), lean, ""));
     }
     // back row (the same body when there is one row)
     let mut back_body = last.to_string();
@@ -278,10 +308,10 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
     }
     corners(out, &n("Corners back"), &back_body, h, &[(p.round[2], [right, back], [-1.0, -1.0]), (p.round[3], [left, back], [1.0, -1.0])]);
     if p.tabs[1] {
-        let mut v = vec![polygon(&dovetail(1, back, col_c, 0.0))];
+        let mut v = vec![polygon(&joint_shape(1, back, col_c, 0.0, lean))];
         v.extend(pattern(nx, px, 1, 0.0));
         sketch(out, 0.0, &n("Tabs Y"), v);
-        out.push(extrude(&n("Tabs Y"), tab_h, Op::Join(last), None, ""));
+        out.push(extrude(&n("Tabs Y"), tab_h, Op::Join(last), lean, ""));
     }
     // half-grid holes differ from row to row, so they go into each row now
     let rows: Vec<&str> = if ny > 1 { vec![b, "@created"] } else { vec![b] };
