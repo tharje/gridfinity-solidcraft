@@ -1,0 +1,19 @@
+{
+  "entry": "baseplate",
+  "params": {
+    "grid": "21 mm (half)",
+    "width": 2,
+    "depth": 3,
+    "holes_magnet": true,
+    "holes_screw": true
+  },
+  "expect": {
+    "model": {
+      "body_count": 1,
+      "total": {
+        "volume_mm3": 15457.513
+      }
+    },
+    "tolerance": 0.0001
+  }
+}

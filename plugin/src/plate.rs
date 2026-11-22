@@ -10,7 +10,7 @@
 
 use crate::geometry::{
     block_holes, block_rrects, circle, cmd, extrude, pattern, r4, sketch, Block, Op, HALF_PITCH, MAGNET_D, MAGNET_DEPTH,
-    PITCH, PLATE_PROFILE, PLATE_R, PLATE_RIM,
+    PITCH, PLATE_PROFILE, PLATE_R, PLATE_RIM, PLATE_SCREW_D, PLATE_SCREW_HEAD_D,
 };
 use serde_json::{json, Value};
 
@@ -27,11 +27,38 @@ pub const CLEARANCE: f64 = 0.05;
 pub const CLEARANCE_TOP: f64 = 0.15;
 
 /// Height of a baseplate: an open frame is just the pocket profile high (the pockets end at its
-/// underside); a solid one keeps a floor, thicker with magnet holes.
-pub fn plate_height(open: bool, magnets: bool) -> f64 {
+/// underside); a solid one keeps a floor, thicker with magnet or screw holes. With both, the
+/// countersink sits under the magnet hole with 0.6 mm between them for the magnet to rest on.
+pub fn plate_height(open: bool, magnets: bool, screws: bool) -> f64 {
     let (a, m, c) = PLATE_PROFILE;
     let depth = a + m + c;
-    if open { depth - PLATE_RIM } else if magnets { depth + MAGNET_DEPTH + 0.6 } else { depth + 0.35 }
+    if open {
+        return depth - PLATE_RIM;
+    }
+    depth + match (magnets, screws) {
+        (true, true) => MAGNET_DEPTH + SCREW_SINK + 0.6,
+        (false, false) => 0.35,
+        _ => MAGNET_DEPTH + 0.6,
+    }
+}
+
+/// Depth of a screw hole's 90° countersink.
+pub const SCREW_SINK: f64 = (PLATE_SCREW_HEAD_D - PLATE_SCREW_D) / 2.0;
+
+/// Screw holes under `cells` of the body or bodies `targets`: an M3 clearance hole from the
+/// underside up through the floor (which is `floor` high), then its countersink.
+fn screw_holes(out: &mut Vec<Value>, name: &str, cells: Block, grid_origin: [f64; 2], floor: f64, targets: Value) {
+    let hole = format!("{name} Screws");
+    sketch(out, 0.0, &hole, block_holes(cells, grid_origin, PLATE_SCREW_D));
+    let mut e = extrude(&hole, floor + 0.1, Op::Cut(""), None, "positive");
+    e["params"]["targets"] = targets.clone();
+    out.push(e);
+    // the cone runs on a little into the hole, so it doesn't end on the hole's edge
+    let sink = format!("{name} Screw countersinks");
+    sketch(out, 0.0, &sink, block_holes(cells, grid_origin, PLATE_SCREW_HEAD_D));
+    let mut e = extrude(&sink, SCREW_SINK + 0.1, Op::Cut(""), Some(-45.0), "positive");
+    e["params"]["targets"] = targets;
+    out.push(e);
 }
 
 /// Tabs and sockets reach only as high as the straight part of the wall between pockets, so a
@@ -67,8 +94,10 @@ pub struct Piece {
     pub cells: Block,
     pub h: f64,
     pub open: bool,
-    /// Magnet holes, and the corner of the grid they line up with.
+    /// Magnet holes and screw holes (in the same spots), and the corner of the grid they line
+    /// up with.
     pub magnets: bool,
+    pub screws: bool,
     pub grid_origin: [f64; 2],
     /// Filler beside the cells: left, right, front, back (mm).
     pub filler: [f64; 4],
@@ -254,14 +283,18 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
         sketch(out, 0.0, &n("Tabs Y"), v);
         out.push(extrude(&n("Tabs Y"), tab_h, Op::Join(last), None, ""));
     }
-    // half-grid magnets differ from row to row, so they go into each row now
+    // half-grid holes differ from row to row, so they go into each row now
+    let rows: Vec<&str> = if ny > 1 { vec![b, "@created"] } else { vec![b] };
+    let floor = h - (PLATE_PROFILE.0 + PLATE_PROFILE.1 + PLATE_PROFILE.2 - PLATE_RIM);
     if p.magnets && half {
-        let rows: Vec<&str> = if ny > 1 { vec![b, "@created"] } else { vec![b] };
-        let floor = h - (PLATE_PROFILE.0 + PLATE_PROFILE.1 + PLATE_PROFILE.2 - PLATE_RIM);
         sketch(out, floor, &n("Magnets"), block_holes(p.cells, p.grid_origin, MAGNET_D));
         let mut e = extrude(&n("Magnets"), MAGNET_DEPTH, Op::Cut(b), None, "negative");
         e["params"]["targets"] = json!(rows);
         out.push(e);
+    }
+    if p.screws && half {
+        // `@created` still names the copied rows: a cut makes no bodies
+        screw_holes(out, b, p.cells, p.grid_origin, floor, json!(rows));
     }
     // and only now one plate
     if ny > 1 {
@@ -273,7 +306,7 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
 }
 
 /// The first cell of `p`, as body `p.name`: a square block with its pocket and, when they are
-/// the same in every cell, its magnet holes.
+/// the same in every cell, its magnet and screw holes.
 pub fn first_cell(out: &mut Vec<Value>, p: &Piece) {
     let b = p.name.as_str();
     let n = |s: &str| format!("{b} {s}");
@@ -298,10 +331,13 @@ pub fn first_cell(out: &mut Vec<Value>, p: &Piece) {
     let last = if p.open { a + 0.2 } else { a };
     out.push(extrude(&n("Pocket3"), last, Op::Cut(b), Some(-45.0), "negative"));
     let half = px == crate::geometry::HALF_PITCH || py == crate::geometry::HALF_PITCH;
+    let floor = h - (a + m + c - rim);
     if p.magnets && !half {
-        let floor = h - (a + m + c - rim);
         sketch(out, floor, &n("Magnets"), block_holes(one, p.grid_origin, MAGNET_D));
         out.push(extrude(&n("Magnets"), MAGNET_DEPTH, Op::Cut(b), None, "negative"));
+    }
+    if p.screws && !half {
+        screw_holes(out, b, one, p.grid_origin, floor, json!([b]));
     }
 }
 
@@ -374,8 +410,8 @@ pub fn rest(outer: [f64; 4], inner: [f64; 4]) -> Vec<[f64; 4]> {
     v
 }
 
-/// Cut half-cell pockets, the same profile as a cell's, into `body` at `cells`. No magnet
-/// holes: they sit on the 42 mm grid, outside these cells.
+/// Cut half-cell pockets, the same profile as a cell's, into `body` at `cells`. No magnet or
+/// screw holes: they sit on the 42 mm grid, outside these cells.
 fn half_pockets(out: &mut Vec<Value>, name: &str, body: &str, p: &Piece, cells: Block) {
     let (a, m, c) = PLATE_PROFILE;
     let rim = PLATE_RIM;
@@ -413,4 +449,68 @@ fn corners(out: &mut Vec<Value>, name: &str, body: &str, h: f64, list: &[(bool, 
     let mut e = extrude(name, h, Op::Cut(body), None, "");
     e["params"]["profiles"] = json!(picks);
     out.push(e);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geometry::{baseplate_piece, BaseplateOptions};
+
+    fn plate(magnets: bool, screws: bool, pitch: f64) -> Vec<Value> {
+        let o = BaseplateOptions { nx: 2, ny: 3, pitch: [pitch; 2], open: false, magnets, screws, filler: [0.0; 4],
+            half_cells: false, origin: [0.0, 0.0], name: "P".into() };
+        let mut out = Vec::new();
+        piece_commands(&mut out, &baseplate_piece(&o));
+        out
+    }
+
+    /// The circles drawn in sketch `name`, as (x, y, diameter), and the extrude that uses it.
+    fn holes(c: &[Value], name: &str) -> (Vec<(f64, f64, f64)>, Option<Value>) {
+        let start = c.iter().position(|v| v["command"] == "sketch.create" && v["params"]["name"] == name);
+        let Some(start) = start else { return (Vec::new(), None) };
+        let circles = c[start..].iter().take_while(|v| v["command"] != "sketch.finish")
+            .filter(|v| v["command"] == "sketch.circle.center")
+            .map(|v| (v["params"]["center"][0].as_f64().unwrap(), v["params"]["center"][1].as_f64().unwrap(),
+                v["params"]["diameter"].as_f64().unwrap()))
+            .collect();
+        let e = c.iter().find(|v| v["command"] == "solid.extrude" && v["params"]["sketch"] == name).cloned();
+        (circles, e)
+    }
+
+    #[test]
+    fn a_floor_holds_the_countersink_and_the_magnet_above_it() {
+        let depth = PLATE_PROFILE.0 + PLATE_PROFILE.1 + PLATE_PROFILE.2;
+        assert!((plate_height(false, false, true) - plate_height(false, true, false)).abs() < 1e-9);
+        let floor = plate_height(false, true, true) - depth + PLATE_RIM;
+        // under the magnet hole: the countersink, then 0.6 mm for the magnet to rest on
+        assert!((floor - MAGNET_DEPTH - SCREW_SINK - 0.65).abs() < 1e-9);
+        assert!((plate_height(true, false, true) - plate_height(true, false, false)).abs() < 1e-9);
+        assert!((SCREW_SINK - 1.7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn screw_holes_go_where_the_magnets_do() {
+        for pitch in [PITCH, HALF_PITCH] {
+            let c = plate(true, true, pitch);
+            let (mags, _) = holes(&c, "P Magnets");
+            let (screws, hole) = holes(&c, "P Screws");
+            let (sinks, sink) = holes(&c, "P Screw countersinks");
+            let at = |v: &[(f64, f64, f64)]| v.iter().map(|&(x, y, _)| (x, y)).collect::<Vec<_>>();
+            assert!(!mags.is_empty());
+            assert_eq!(at(&mags), at(&screws));
+            assert_eq!(at(&mags), at(&sinks));
+            assert!(screws.iter().all(|h| h.2 == PLATE_SCREW_D) && sinks.iter().all(|h| h.2 == PLATE_SCREW_HEAD_D));
+            let (hole, sink) = (hole.unwrap(), sink.unwrap());
+            // both cut up from the underside, the countersink narrowing as it goes
+            assert_eq!((hole["params"]["direction"].clone(), sink["params"]["direction"].clone()), (json!("positive"), json!("positive")));
+            assert_eq!(sink["params"]["taper"], json!(-45.0));
+            assert_eq!(hole["params"]["operation"], json!("cut"));
+        }
+        // and without magnets in the same spots
+        let (with, _) = holes(&plate(true, true, PITCH), "P Screws");
+        let (without, _) = holes(&plate(false, true, PITCH), "P Screws");
+        assert_eq!(with, without);
+        assert!(holes(&plate(false, true, PITCH), "P Magnets").0.is_empty());
+        assert!(holes(&plate(true, false, PITCH), "P Screws").0.is_empty());
+    }
 }

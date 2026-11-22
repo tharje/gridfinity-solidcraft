@@ -75,13 +75,23 @@ one undo step, editable afterwards, and they keep working without the plugin.
   and the height with the stacking lip. If you change `Height_units` in Parameters afterwards, the
   name keeps the height it was made with.
 - **baseplate**: width × depth pockets with the Gridfinity profile, full, half or custom grid, a solid
-  bottom (optional magnet holes) or an **open frame** (no bottom). Add **filler** on any side
+  bottom (optional magnet and screw holes) or an **open frame** (no bottom). Add **filler** on any side
   (`filler_left`, `filler_right`, `filler_front`, `filler_back`, in mm) to fill out a drawer
   without the drawer settings. Where 21 mm or more of filler fits, it gets **half cells** next to the
   cells: pockets half a cell wide and as long as the cells (21 × 42 mm beside them, 42 × 21 mm in
   front and behind, 21 × 21 mm in the corners), for half-width bins and half-grid 1 × 2 bins. Only
   the rest is solid; set **Leftover space** (`leftover`) to "Solid" for solid filler only. Half cells are made
-  on the 42 and 21 mm grids, not on a custom one, and have no magnet holes.
+  on the 42 and 21 mm grids, not on a custom one, and have no magnet or screw holes.
+- **Screw holes** (`holes_screw`) on a baseplate or drawer baseplate go where the magnet holes go,
+  with or without magnets: an M3 hole (3.4 mm) through the floor, countersunk 90° from the underside
+  (6.8 mm) for a flat-head screw (ISO 10642) that sits flush. The screw goes up into a bin's screw
+  hole (3 mm, 6 mm deep) and holds it down. The floor is 3.05 mm with screw holes (use M3 × 8), and
+  4.75 mm with magnet and screw holes (M3 × 10): the countersink sits under the magnet hole, with
+  0.6 mm between them for the magnet to rest on. Put a magnet or a screw in each spot.
+
+  | 2×2 baseplate from below, magnet and screw holes | Section through a row of holes |
+  |---|---|
+  | ![Screw holes from below](docs/images/baseplate-screw-holes.png) | ![Section through the holes](docs/images/baseplate-screw-section.png) |
 - **drawer baseplate**: enter the inside size of a drawer and the size of your printer's bed. It
   fits as many cells as the drawer takes, fills the space left over with filler (split evenly or
   all on one side): a row of half cells where 21 mm or more is left over (on the side you choose,
@@ -234,7 +244,7 @@ for "a Gridfinity bin 3 × 2 with magnet holes"; the assistant asks before each 
 SolidCraft gives a plugin run 256 commands and 30 seconds. The plugin makes one cell and copies
 it, so the number of commands stays small at any size; the time goes on joining the cells, about
 0.15 s a cell on a 4-core desktop, more with magnet or screw holes. One run builds up to 100 cells
-(a 10 × 10 baseplate in about 16 s), 42 with magnet holes. Bins take longer: up to 72 cells (8 × 9),
+(a 10 × 10 baseplate in about 16 s), 42 with magnet holes, 25 with screw holes (20 with both). Bins take longer: up to 72 cells (8 × 9),
 45 with magnet holes, 24 with screw holes (20 with both), and an eco bin up to 25 (5 × 5), 21 with magnet holes.
 Dividers that cross each other, scoops and label tabs count in too, so a big bin with many
 compartments may need fewer dividers. Past that the plugin says so before it starts. Half cells in the filler take longer than cells: a 4 × 4
@@ -266,9 +276,9 @@ run an entry with that hash ([examples/](examples/)).
 | Entry | Parameters (default) |
 |---|---|
 | `bin` | `grid` "42 mm (full)" / "21 mm (half)" / "Custom (sizes below)", `custom_size_x`, `custom_size_y` 15–100 mm (42, Custom only), `width` up to 504 mm and 24 cells (1), `depth` (1), `height` 2–20 units (3), `inside` "Hollow" / "Eco (thin walls, hollow feet)" / "Solid (for custom cutouts)", `dividers_x` 0–10 (0), `dividers_y` 0–10 (0), `holes_magnet` (false), `holes_screw` (false), `inside_scoop` 0–40 mm (0), `inside_label_tab` (false), `inside_label_text` (labels separated by `;`), `inside_label_text_size` 0–20 mm (0: fit), `inside_label_text_height` 0.1–3 mm (0.4), `inside_label_text_style` "Raised" / "Flush (inlaid)", `inside_label_text_font` (installed font, empty: built-in), `inside_fill_height` mm (0: to the top; solid bins, from 6 mm to 1 mm under the inside top), `inside_wall` 0.4–5 mm (0: standard), `filler_left`, `filler_right`, `filler_front`, `filler_back` 0–200 mm (0), `position_x`, `position_y` mm (0, the corner of the bin with its filler), `stacking_lip` (true), `title` (body name; empty: automatic, with the real size) |
-| `baseplate` | `grid`, `custom_size_x`, `custom_size_y`, `width` (3), `depth` (3), `bottom` "Solid" / "Open (frame only)", `holes_magnet` (false, solid only), `filler_left`, `filler_right`, `filler_front`, `filler_back` 0–200 mm (0), `leftover` "Half cells" / "Solid", `position_x`, `position_y` mm (0, the corner of the plate with its filler), `title` |
+| `baseplate` | `grid`, `custom_size_x`, `custom_size_y`, `width` (3), `depth` (3), `bottom` "Solid" / "Open (frame only)", `holes_magnet` (false, solid only), `holes_screw` (false, solid only), `filler_left`, `filler_right`, `filler_front`, `filler_back` 0–200 mm (0), `leftover` "Half cells" / "Solid", `position_x`, `position_y` mm (0, the corner of the plate with its filler), `title` |
 | `edit` | `bin` (one picked body: `[{"type": "body", "name": "<bin's name>"}]`), and what to change: `cells_x` (width), `cells_y` (depth), `height` (0: keep; `width` and `depth` work too), `dividers_x`, `dividers_y` (-1: keep), `inside_scoop` mm (-1: keep), `inside` ("Keep" or as on `bin`), `holes_magnet`, `holes_screw`, `stacking_lip`, `inside_label_tab` ("Keep" / "Yes" / "No"), `inside_label_text` (empty: keep, `-`: none), `inside_label_text_style` ("Keep" or as on `bin`), `inside_label_text_size` mm (-1: keep), `inside_label_text_height` mm (0: keep), `inside_label_text_font` (empty: keep, `-`: built-in) |
-| `drawer` | `drawer_width`, `drawer_depth` 15–1000 mm (300), `printer_x`, `printer_y` 50–1000 mm (256), `grid`, `custom_size_x`, `custom_size_y`, `bottom`, `holes_magnet`, `filler_x` "Even (both sides)" / "Left" / "Right", `filler_y` "Even (both sides)" / "Front" / "Back", `leftover` "Half cells" / "Solid", `piece` (0: all), `position_x`, `position_y` mm (0), `title`, `layout_sheet` (true), `floor` (SolidCraft 0.44+: one picked face, e.g. `[{"type": "face", "body": "Drawer", "index": 10}]`; sets the size and position) |
+| `drawer` | `drawer_width`, `drawer_depth` 15–1000 mm (300), `printer_x`, `printer_y` 50–1000 mm (256), `grid`, `custom_size_x`, `custom_size_y`, `bottom`, `holes_magnet`, `holes_screw`, `filler_x` "Even (both sides)" / "Left" / "Right", `filler_y` "Even (both sides)" / "Front" / "Back", `leftover` "Half cells" / "Solid", `piece` (0: all), `position_x`, `position_y` mm (0), `title`, `layout_sheet` (true), `floor` (SolidCraft 0.44+: one picked face, e.g. `[{"type": "face", "body": "Drawer", "index": 10}]`; sets the size and position) |
 
 Scripts may also say `"full"` / `"half"` / `"custom"` / `"open"` and use the older names `magnets`, `screws`, `name` and `origin: [x, y]`.
 

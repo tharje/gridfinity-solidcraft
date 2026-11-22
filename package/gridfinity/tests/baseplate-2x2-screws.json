@@ -1,0 +1,17 @@
+{
+  "entry": "baseplate",
+  "params": {
+    "width": 2,
+    "depth": 2,
+    "holes_screw": true
+  },
+  "expect": {
+    "model": {
+      "body_count": 1,
+      "total": {
+        "volume_mm3": 25805.714
+      }
+    },
+    "tolerance": 0.0001
+  }
+}
