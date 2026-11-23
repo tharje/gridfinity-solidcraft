@@ -36,6 +36,11 @@ pub(crate) const MAGNET_D: f64 = 6.5;
 pub(crate) const MAGNET_DEPTH: f64 = 2.4;
 const SCREW_D: f64 = 3.0;
 const SCREW_DEPTH: f64 = 6.0;
+/// Baseplate screw holes, at the magnet spots: M3 clearance through the floor, countersunk 90°
+/// from the underside so a flat-head screw (ISO 10642, head up to 6.72 mm) sits flush and goes
+/// up into a bin's screw hole.
+pub(crate) const PLATE_SCREW_D: f64 = 3.4;
+pub(crate) const PLATE_SCREW_HEAD_D: f64 = 6.8;
 pub(crate) const PLATE_PROFILE: (f64, f64, f64) = (0.7, 1.8, 2.15);
 pub(crate) const PLATE_R: f64 = 4.0;
 pub(crate) const PLATE_RIM: f64 = 0.05;
@@ -144,9 +149,10 @@ pub struct BaseplateOptions {
     pub ny: u32,
     /// Pocket size in mm along X and Y: PITCH (full grid), HALF_PITCH, or a custom size.
     pub pitch: [f64; 2],
-    /// Frame only: the pockets go right through (no floor, so no magnet holes).
+    /// Frame only: the pockets go right through (no floor, so no magnet or screw holes).
     pub open: bool,
     pub magnets: bool,
+    pub screws: bool,
     /// Filler beside the pockets: left, right, front, back (mm).
     pub filler: [f64; 4],
     /// Half cells (21 mm pockets) in the filler where they fit, the rest solid.
@@ -678,15 +684,16 @@ pub fn baseplate_commands(o: &BaseplateOptions) -> Vec<Value> {
 
 /// The baseplate as one piece.
 pub fn baseplate_piece(o: &BaseplateOptions) -> crate::plate::Piece {
-    let magnets = o.magnets && !o.open;
+    let (magnets, screws) = (o.magnets && !o.open, o.screws && !o.open);
     // the plate's corner (filler included) stays at the origin
     let corner = [o.origin[0] + o.filler[0], o.origin[1] + o.filler[2]];
     crate::plate::Piece {
         name: o.name.clone(),
         cells: Block { corner, nx: o.nx, ny: o.ny, pitch: o.pitch },
-        h: crate::plate::plate_height(o.open, magnets),
+        h: crate::plate::plate_height(o.open, magnets, screws),
         open: o.open,
         magnets,
+        screws,
         grid_origin: corner,
         filler: o.filler,
         half_cells: o.half_cells,
@@ -951,7 +958,7 @@ mod tests {
         assert_eq!(circles(&c), vec![(8.0, 12.5), (32.0, 12.5)]);
         // outside 39.5 x 24.5, feet the same at the top
         assert!(c.iter().any(|v| v["command"] == "sketch.rectangle.rounded" && v["params"]["p1"] == json!([39.75, 24.75])));
-        let p = BaseplateOptions { nx: 1, ny: 1, pitch: [40.0, 25.0], open: false, magnets: true, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into() };
+        let p = BaseplateOptions { nx: 1, ny: 1, pitch: [40.0, 25.0], open: false, magnets: true, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into() };
         let pc = baseplate_commands(&p);
         let magnets = |c: &[Value]| -> Vec<Value> { c.iter().filter(|v| v["params"]["diameter"] == json!(MAGNET_D)).cloned().collect() };
         assert_eq!(circles(&magnets(&pc)), circles(&c));
@@ -963,7 +970,7 @@ mod tests {
 
     #[test]
     fn baseplate_is_one_cell_repeated_with_rounded_corners() {
-        let c = baseplate_commands(&BaseplateOptions { nx: 3, ny: 2, pitch: [PITCH; 2], open: false, magnets: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into() });
+        let c = baseplate_commands(&BaseplateOptions { nx: 3, ny: 2, pitch: [PITCH; 2], open: false, magnets: false, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into() });
         let pockets = c.iter().filter(|v| v["command"] == "sketch.rectangle.rounded" && v["params"]["radius"] == json!(3.95)).count();
         assert_eq!(pockets, 1);
         // a row of 3, then 2 rows
@@ -986,7 +993,7 @@ mod tests {
         o.div_x = 10;
         o.div_y = 10;
         assert!(bin_commands(&o).len() < 100);
-        let p = BaseplateOptions { nx: 24, ny: 24, pitch: [HALF_PITCH; 2], open: false, magnets: true, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "P".into() };
+        let p = BaseplateOptions { nx: 24, ny: 24, pitch: [HALF_PITCH; 2], open: false, magnets: true, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "P".into() };
         assert!(baseplate_commands(&p).len() < 100);
     }
 }

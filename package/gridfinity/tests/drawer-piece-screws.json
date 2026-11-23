@@ -1,0 +1,20 @@
+{
+  "entry": "drawer",
+  "params": {
+    "drawer_width": 400,
+    "drawer_depth": 300,
+    "holes_magnet": true,
+    "holes_screw": true,
+    "piece": 1,
+    "layout_sheet": false
+  },
+  "expect": {
+    "model": {
+      "body_count": 1,
+      "total": {
+        "volume_mm3": 144994.87
+      }
+    },
+    "tolerance": 0.0001
+  }
+}

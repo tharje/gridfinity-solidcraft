@@ -306,6 +306,19 @@ fn check_label_text(o: &mut BinOptions) -> Result<(), String> {
     Ok(())
 }
 
+/// A baseplate's magnet and screw holes: both need a solid bottom.
+fn get_plate_holes(p: &Map<String, Value>, open: bool) -> Result<(bool, bool), String> {
+    let magnets = get_b(p, &["holes_magnet", "magnets"], false)?;
+    let screws = get_b(p, &["holes_screw", "screws"], false)?;
+    if open && magnets {
+        return Err("magnet holes need a solid bottom: choose Bottom \"Solid\" or turn Magnet holes off".into());
+    }
+    if open && screws {
+        return Err("screw holes need a solid bottom: choose Bottom \"Solid\" or turn Screw holes off".into());
+    }
+    Ok((magnets, screws))
+}
+
 pub fn parse_baseplate(params: &Value) -> Result<BaseplateOptions, String> {
     let empty = Map::new();
     let p = params.as_object().unwrap_or(&empty);
@@ -318,10 +331,7 @@ pub fn parse_baseplate(params: &Value) -> Result<BaseplateOptions, String> {
         Some(Value::String(s)) if s.to_ascii_lowercase().starts_with("solid") => false,
         _ => return Err("bottom must be \"Solid\" or \"Open (frame only)\"".into()),
     };
-    let magnets = get_b(p, &["holes_magnet", "magnets"], false)?;
-    if open && magnets {
-        return Err("magnet holes need a solid bottom: choose Bottom \"Solid\" or turn Magnet holes off".into());
-    }
+    let (magnets, screws) = get_plate_holes(p, open)?;
     let half = grid_label(pitch);
     let frame = if open { " frame" } else { "" };
     Ok(BaseplateOptions {
@@ -330,6 +340,7 @@ pub fn parse_baseplate(params: &Value) -> Result<BaseplateOptions, String> {
         pitch,
         open,
         magnets,
+        screws,
         filler: [
             get_mm(p, "filler_left", 0.0, 0.0, MAX_FILLER)?,
             get_mm(p, "filler_right", 0.0, 0.0, MAX_FILLER)?,
@@ -360,6 +371,11 @@ const MAX_DRAWER: f64 = 1000.0;
 /// with magnet holes: 15 s, 8 x 8 with them: over 30 s). These keep a run within the limit.
 const MAX_CELLS_RUN: u32 = 100;
 const MAX_CELLS_RUN_MAGNETS: u32 = 42;
+/// Screw holes take longer again (their countersinks most): with `solidcraft-cli plugin test`
+/// on 0.46.2, 6 x 7 cells with magnet holes take 10.2 s, 5 x 5 with screw holes 10.2 s and 4 x 5
+/// with both 9.6 s.
+const MAX_CELLS_RUN_SCREWS: u32 = 25;
+const MAX_CELLS_RUN_BOTH: u32 = 20;
 /// Bins take longer a cell, in the desktop app 0.43 under xvfb: 8 x 8 cells 19 s, 9 x 9 26 s,
 /// 10 x 10 over 30 s. Eco bins' hollow feet take about 0.8 s a cell to join (4 x 4: 13 s, 5 x 5:
 /// 19 s, 6 x 6: 29 s).
@@ -380,16 +396,20 @@ const SCOOP_WEIGHT: f64 = 1.0;
 const MAX_HALF_CELLS_RUN: u32 = 70;
 const MAX_HALF_CELLS_RUN_DRAWER: u32 = 50;
 
-fn check_time(cells: u32, (half, max_half): (u32, u32), magnets: bool, what: &str) -> Result<(), String> {
-    let max = if magnets { MAX_CELLS_RUN_MAGNETS } else { MAX_CELLS_RUN };
+/// `holes`: magnet holes, screw holes.
+fn check_time(cells: u32, (half, max_half): (u32, u32), holes: (bool, bool), what: &str) -> Result<(), String> {
+    let (max, with) = match holes {
+        (true, true) => (MAX_CELLS_RUN_BOTH, " with magnet and screw holes"),
+        (true, false) => (MAX_CELLS_RUN_MAGNETS, " with magnet holes"),
+        (false, true) => (MAX_CELLS_RUN_SCREWS, " with screw holes"),
+        (false, false) => (MAX_CELLS_RUN, ""),
+    };
     if half == 0 && cells > max {
-        let with = if magnets { " with magnet holes" } else { "" };
         return Err(format!(
             "{cells} cells is too many for one run: SolidCraft gives a plugin 30 seconds, which is about {max} cells{with}. {what}"
         ));
     }
     if half > 0 && cells as f64 / max as f64 + half as f64 / max_half as f64 > 1.0 {
-        let with = if magnets { " with magnet holes" } else { "" };
         return Err(format!(
             "{cells} cells{with} and {half} half cells is too much for one run: SolidCraft gives a plugin 30 seconds, and half \
              cells take longer than cells. Set Leftover space to Solid, or: {what}"
@@ -501,10 +521,7 @@ pub fn parse_drawer(params: &Value) -> Result<DrawerOptions, String> {
         Some(Value::String(s)) if s.to_ascii_lowercase().starts_with("solid") => false,
         _ => return Err("bottom must be \"Solid\" or \"Open (frame only)\"".into()),
     };
-    let magnets = get_b(p, &["holes_magnet", "magnets"], false)?;
-    if open && magnets {
-        return Err("magnet holes need a solid bottom: choose Bottom \"Solid\" or turn Magnet holes off".into());
-    }
+    let (magnets, screws) = get_plate_holes(p, open)?;
     let piece = get_u(p, "piece", 0, 0, 999)?;
     let half = grid_label(pitch);
     Ok(DrawerOptions {
@@ -515,6 +532,7 @@ pub fn parse_drawer(params: &Value) -> Result<DrawerOptions, String> {
         half_cells: get_leftover(p)?,
         open,
         magnets,
+        screws,
         origin: get_origin(p)?,
         // in a picked drawer the pieces lie together, as they will in the drawer
         gap: if picked_floor(params).is_some() { 0.0 } else { LAYOUT_GAP },
@@ -917,7 +935,7 @@ pub fn plan(entry: &str, params: &Value) -> Result<(String, Vec<Value>), String>
         "baseplate" => {
             let o = parse_baseplate(params)?;
             let half = plate::half_cell_count(&geometry::baseplate_piece(&o));
-            check_time(o.nx * o.ny, (half, MAX_HALF_CELLS_RUN), o.magnets && !o.open,
+            check_time(o.nx * o.ny, (half, MAX_HALF_CELLS_RUN), (o.magnets && !o.open, o.screws && !o.open),
                 "Use Gridfinity drawer baseplate, which splits it into pieces and can build them one at a time.")?;
             Ok((o.name.clone(), baseplate_commands(&o)))
         }
@@ -927,7 +945,7 @@ pub fn plan(entry: &str, params: &Value) -> Result<(String, Vec<Value>), String>
             let count = pl.axes[0].pieces.len() * pl.axes[1].pieces.len();
             let built = drawer::built_cells(&o, &pl);
             let half = drawer::built_half_cells(&o, &pl);
-            check_time(built, (half, MAX_HALF_CELLS_RUN_DRAWER), o.magnets && !o.open, &if o.piece == 0 {
+            check_time(built, (half, MAX_HALF_CELLS_RUN_DRAWER), (o.magnets && !o.open, o.screws && !o.open), &if o.piece == 0 {
                 format!("This drawer is {count} pieces: set Piece to 1, 2, ... {count} and run once for each.")
             } else {
                 "Use a smaller printer size, so the pieces get smaller.".to_string()
@@ -1315,6 +1333,12 @@ mod tests {
         let b = parse_baseplate(&json!({"grid": "21 mm (half)", "bottom": "Open (frame only)", "width": 4})).unwrap();
         assert_eq!((b.pitch, b.open, b.name.as_str()), ([HALF_PITCH; 2], true, "Gridfinity half baseplate frame 4x3"));
         assert!(parse_baseplate(&json!({"bottom": "Open (frame only)", "holes_magnet": true})).is_err());
+        assert!(parse_baseplate(&json!({"bottom": "Open (frame only)", "holes_screw": true})).unwrap_err().contains("Screw holes off"));
+        assert!(parse_drawer(&json!({"bottom": "Open (frame only)", "holes_screw": true})).is_err());
+        let b = parse_baseplate(&json!({"holes_screw": true})).unwrap();
+        assert!(b.screws && !b.magnets);
+        assert!(parse_baseplate(&json!({"screws": true, "magnets": true})).unwrap().screws);
+        assert!(parse_drawer(&json!({"holes_screw": true})).unwrap().screws);
         let (name, cmds) = plan("baseplate", &json!({"width": 2, "depth": 2, "magnets": true})).unwrap();
         assert_eq!(name, "Gridfinity baseplate 2x2");
         assert!(!cmds.is_empty());
@@ -1340,6 +1364,11 @@ mod tests {
         let e = plan("baseplate", &json!({"width": 12, "depth": 12})).unwrap_err();
         assert!(e.contains("144 cells") && e.contains("drawer baseplate"));
         assert!(plan("baseplate", &json!({"width": 7, "depth": 7, "holes_magnet": true})).is_err());
+        assert!(plan("baseplate", &json!({"width": 5, "depth": 5, "holes_screw": true})).is_ok());
+        assert!(plan("baseplate", &json!({"width": 6, "depth": 5, "holes_screw": true})).unwrap_err().contains("25 cells with screw holes"));
+        assert!(plan("baseplate", &json!({"width": 5, "depth": 4, "holes_magnet": true, "holes_screw": true})).is_ok());
+        assert!(plan("baseplate", &json!({"width": 7, "depth": 3, "holes_magnet": true, "holes_screw": true}))
+            .unwrap_err().contains("20 cells with magnet and screw holes"));
         assert!(plan("bin", &json!({"width": 7, "depth": 6, "holes_magnet": true})).is_ok());
         assert!(plan("bin", &json!({"width": 7, "depth": 6, "holes_magnet": true, "holes_screw": true})).unwrap_err().contains("20 cells"));
         assert!(plan("bin", &json!({"width": 9, "depth": 8})).is_ok());

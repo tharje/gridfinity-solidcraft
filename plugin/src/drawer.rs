@@ -36,6 +36,7 @@ pub struct DrawerOptions {
     pub half_cells: bool,
     pub open: bool,
     pub magnets: bool,
+    pub screws: bool,
     pub origin: [f64; 2],
     /// Space between the pieces in the design: LAYOUT_GAP, or 0 in a picked drawer.
     pub gap: f64,
@@ -169,8 +170,8 @@ pub fn pieces(o: &DrawerOptions, pl: &DrawerPlan) -> Vec<Piece> {
     let [ax, ay] = &pl.axes;
     let [px, py] = o.pitch;
     let (kx, ky) = (ax.pieces.len(), ay.pieces.len());
-    let magnets = o.magnets && !o.open;
-    let h = plate_height(o.open, magnets);
+    let (magnets, screws) = (o.magnets && !o.open, o.screws && !o.open);
+    let h = plate_height(o.open, magnets, screws);
     let starts = |pieces: &[u32]| pieces.iter().scan(0u32, |acc, &k| { let s = *acc; *acc += k; Some(s) }).collect::<Vec<_>>();
     let (cx0, cy0) = (starts(&ax.pieces), starts(&ay.pieces));
     let name = |i: usize, j: usize| if kx * ky == 1 { o.name.clone() } else { format!("{} {}-{}", o.name, i + 1, j + 1) };
@@ -190,6 +191,7 @@ pub fn pieces(o: &DrawerOptions, pl: &DrawerPlan) -> Vec<Piece> {
                 h,
                 open: o.open,
                 magnets,
+                screws,
                 // holes line up with the piece's own grid, which is the drawer's moved by the gap
                 grid_origin: [c[0] - px * cx0[i] as f64, c[1] - py * cy0[j] as f64],
                 filler: [
@@ -313,7 +315,7 @@ mod tests {
     use serde_json::Value;
 
     fn opts(drawer: [f64; 2], bed: [f64; 2]) -> DrawerOptions {
-        DrawerOptions { drawer, bed, pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false, open: false, magnets: false,
+        DrawerOptions { drawer, bed, pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false, open: false, magnets: false, screws: false,
                         origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "Drawer".into(), piece: 0 }
     }
 
@@ -421,7 +423,7 @@ mod more_tests {
     #[test]
     fn a_big_drawer_stays_under_the_call_limit() {
         let o = DrawerOptions { drawer: [600.0, 500.0], bed: [256.0, 256.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false,
-                                open: false, magnets: true, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0 };
+                                open: false, magnets: true, screws: true, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0 };
         let (pl, c) = drawer_commands(&o).unwrap();
         assert_eq!((pl.axes[0].cells, pl.axes[1].cells), (14, 11));
         assert!(c.len() <= MAX_CALLS, "{} calls", c.len());
@@ -456,7 +458,7 @@ mod more_tests {
         assert_eq!((a.filler_low, a.filler_high), (6.0, 6.0));
         // the half cells are cut only into the pieces on that side
         let o = DrawerOptions { drawer: [400.0, 300.0], bed: [256.0, 256.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: true,
-                                open: false, magnets: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0 };
+                                open: false, magnets: false, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0 };
         let (_, c) = drawer_commands(&o).unwrap();
         let named = |end: &str| c.iter().filter(|v| v["command"] == "sketch.create" && v["params"]["name"].as_str().unwrap().contains(end)).count();
         // 400 x 300: 9 x 7 cells, 22 and 6 mm over: half cells along X only, on the right pieces
@@ -472,7 +474,7 @@ mod more_tests {
     #[test]
     fn too_many_pieces_is_refused_in_words() {
         let o = DrawerOptions { drawer: [1000.0, 1000.0], bed: [100.0, 100.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false,
-                                open: false, magnets: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0 };
+                                open: false, magnets: false, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0 };
         assert!(drawer_commands(&o).unwrap_err().contains("pieces"));
     }
 }
