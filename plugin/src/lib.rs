@@ -1128,16 +1128,16 @@ mod guest {
                 let big = (pocket * 0.35).clamp(2.5, 10.0);
                 let small = (pocket * 0.13).min(pocket * 0.65 / (0.6 * size.len() as f64)).clamp(1.8, 5.0);
                 host("drawing.note.add", json!({"anchor": {"view": view}, "at": [geometry::r4(at[0]), geometry::r4(at[1] + pocket * 0.12)],
-                    "content": l.number.to_string(), "cap_mm": geometry::r4(big)}))?;
+                    "content": l.number.to_string(), "cap_mm": geometry::r4(big), "align": "centre"}))?;
                 host("drawing.note.add", json!({"anchor": {"view": view}, "at": [geometry::r4(at[0]), geometry::r4(at[1] - pocket * 0.25)],
-                    "content": size, "cap_mm": geometry::r4(small)}))?;
+                    "content": size, "cap_mm": geometry::r4(small), "align": "centre"}))?;
             }
             let low = v["boundary_mm"]["min"].clone();
             let high = v["boundary_mm"]["max"].clone();
             let x = (low[0].as_f64().unwrap_or(0.0) + high[0].as_f64().unwrap_or(0.0)) / 2.0;
             host("drawing.note.add", json!({"anchor": {"sheet": sheet}, "at": [geometry::r4(x), geometry::r4(low[1].as_f64().unwrap_or(20.0) - 8.0)],
                 "content": format!("{}: {} pieces, numbered along X, then Y, from the front left. Sizes in mm, with the tabs.",
-                    o.name, labels.len()), "cap_mm": 3.5}))?;
+                    o.name, labels.len()), "cap_mm": 3.5, "align": "centre"}))?;
             Ok::<(), String>(())
         })();
         let _ = host("drawing.close", json!({}));
