@@ -29,7 +29,7 @@ one undo step, editable afterwards, and they keep working without the plugin.
   compartments in one run.
 - **Edit bin** (SolidCraft 0.45): click a bin and change some of its settings; the rest stay as
   they were (see [Edit bin](#edit-bin)).
-- **Layout sheet** (SolidCraft 0.45): a drawer baseplate comes with a drawing of its pieces, each
+- **Layout sheet** (SolidCraft 0.46.2): a drawer baseplate comes with a drawing of its pieces, each
   numbered and with its size, to print or export (see the drawer baseplate below).
 - **Label text** (`inside_label_text`): text on the label tabs, one label per compartment
   separated by `;` (back row first, left to right; `M3x6; M3x8;; Washers` leaves the third one
@@ -99,9 +99,10 @@ one undo step, editable afterwards, and they keep working without the plugin.
   fits as many cells as the drawer takes, fills the space left over with filler (split evenly or
   all on one side): a row of half cells where 21 mm or more is left over (on the side you choose,
   for Even on the right and at the back), the rest solid. Then it cuts the plate along the grid lines into pieces that fit the printer, as
-  evenly as it can. The pieces lock together with dovetail tabs (1.8 mm, 0.05 mm clearance), which
+  evenly as it can. The pieces lock together with dovetail tabs (0.15 mm clearance), which
   sit low in the wall between pockets so they don't show; the piece with the sockets goes on from
-  above. Big drawers are built one piece at a time (`piece`), see *Limits* below.
+  above. Tabs and sockets lean in towards the top (0.67 mm over the tab's height), so a tab that
+  comes down a little off finds its socket by itself instead of bending its edge. Big drawers are built one piece at a time (`piece`), see *Limits* below.
 
   With SolidCraft 0.44 or newer you can instead click the drawer's floor in your design
   (**Drawer floor**, `floor`). The plate then gets the floor's size less 0.5 mm, centred, sits on
@@ -114,7 +115,7 @@ one undo step, editable afterwards, and they keep working without the plugin.
   that way it goes to the floor's edge. A floor that isn't a rectangle is filled to the rectangle
   around it.
 
-  **Layout sheet** (SolidCraft 0.45, `layout_sheet`, on by default): the drawer baseplate also makes
+  **Layout sheet** (SolidCraft 0.46.2, `layout_sheet`, on by default): the drawer baseplate also makes
   a drawing, an A3 sheet with the pieces seen from above, each with its number and its size, so
   you know which piece goes where when you lay them in the drawer. Open it in the **Drawing**
   workspace to print it, or export it as SVG or PNG. For a drawer built a piece at a time, the
@@ -184,18 +185,20 @@ Dimensions follow the Gridfinity spec as implemented in gridfinity-rebuilt-opens
 ([research/SPEC.md](research/SPEC.md)). Every shape was checked by exporting STL from SolidCraft and
 measuring its cross-sections. Not yet printed: please report how it fits.
 
-> Status: 1.4.1. Needs SolidCraft 0.45 or newer: the plugin keeps each bin's settings in the design
-> (for Edit bin), which older versions can't. Tested with SolidCraft 0.45.0, both through
-> scripts/`solidcraft-cli` and in the desktop app's plugin dialog. SolidCraft's plugin runtime is
-> itself experimental, so other versions may refuse the package. For SolidCraft 0.43 or 0.44, use
+> Status: 1.4.2. Needs SolidCraft 0.46.2 or newer: the layout sheet centres its notes, which
+> older versions can't, and the plugin keeps each bin's settings in the design (for Edit bin).
+> Tested with SolidCraft 0.46.2 and 0.47.0 through scripts/`solidcraft-cli`, and with 0.47.0 in the
+> desktop app's plugin dialog. SolidCraft's plugin runtime is itself experimental, so other
+> versions may refuse the package. For SolidCraft 0.45, use
+> [Gridfinity 1.4.1](../../releases/tag/v1.4.1); for 0.43 or 0.44,
 > [Gridfinity 1.3.1](../../releases/tag/v1.3.1).
 
 ## Install
-Download `gridfinity-1.4.1.zip` from the [latest release](../../releases/latest), then in SolidCraft:
+Download `gridfinity-1.4.2.zip` from the [latest release](../../releases/latest), then in SolidCraft:
 **Plugins › Install plugin…** (or **Preferences › Plugins**) and pick the zip. From a script:
 
 ```json
-{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.4.1.zip"}}]}
+{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.4.2.zip"}}]}
 ```
 
 Add `"replace": true` to update an installed version. You can also unpack the zip into
@@ -294,7 +297,7 @@ them (SolidCraft's kernel can't taper profiles that touch).
 `wasm-tools component new` and zips the package into `package/`. Needs Rust with the
 `wasm32-unknown-unknown` target and [wasm-tools](https://github.com/bytecodealliance/wasm-tools).
 
-`package/gridfinity/tests/` holds test cases for SolidCraft 0.45 and later. `solidcraft-cli plugin test package/gridfinity` runs each one on the real host and checks the body count and volume. The tests are left out of the zip.
+`package/gridfinity/tests/` holds test cases for SolidCraft 0.46.2 and later. `solidcraft-cli plugin test package/gridfinity` runs each one on the real host and checks the body count and volume. The tests are left out of the zip.
 
 ## Layout
 - `plugin/` the Rust plugin: `src/geometry.rs` bins and shared shapes, `src/plate.rs` baseplates
