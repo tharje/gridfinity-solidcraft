@@ -193,8 +193,9 @@ Dimensions follow the Gridfinity spec as implemented in gridfinity-rebuilt-opens
 ([research/SPEC.md](research/SPEC.md)). Every shape was checked by exporting STL from SolidCraft and
 measuring its cross-sections. Not yet printed: please report how it fits.
 
-> Status: 1.4.2. Needs SolidCraft 0.46.2 or newer: the layout sheet centres its notes, which
-> older versions can't, and the plugin keeps each bin's settings in the design (for Edit bin).
+> Status: 1.5.0. Needs SolidCraft 0.46.2 or newer, which older versions can't do: the form shows
+> only the fields in use, the layout sheet centres its notes, and the plugin keeps each bin's
+> settings in the design (for Edit bin).
 > Tested with SolidCraft 0.46.2 and 0.47.0 through scripts/`solidcraft-cli`, and with 0.47.0 in the
 > desktop app's plugin dialog. SolidCraft's plugin runtime is itself experimental, so other
 > versions may refuse the package. For SolidCraft 0.45, use
@@ -202,11 +203,11 @@ measuring its cross-sections. Not yet printed: please report how it fits.
 > [Gridfinity 1.3.1](../../releases/tag/v1.3.1).
 
 ## Install
-Download `gridfinity-1.4.2.zip` from the [latest release](../../releases/latest), then in SolidCraft:
+Download `gridfinity-1.5.0.zip` from the [latest release](../../releases/latest), then in SolidCraft:
 **Plugins › Install plugin…** (or **Preferences › Plugins**) and pick the zip. From a script:
 
 ```json
-{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.4.2.zip"}}]}
+{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.5.0.zip"}}]}
 ```
 
 Add `"replace": true` to update an installed version. You can also unpack the zip into
