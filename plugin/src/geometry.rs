@@ -23,7 +23,11 @@ const LIP_FLAT: f64 = 0.3;
 const LIP_SUPPORT: f64 = 1.2;
 const DIVIDER: f64 = 1.2;
 /// How far a label tab reaches out from the back wall (mm); its underside slopes at 45°.
-const LABEL_W: f64 = 12.0;
+/// Label tab width (front to back) by default, and the room it may take at most.
+pub(crate) const LABEL_W: f64 = 12.0;
+pub(crate) const LABEL_W_MAX: f64 = 30.0;
+/// The largest radius an Auto scoop gets: a fingertip's curve, more only wastes room.
+pub(crate) const SCOOP_AUTO_MAX: f64 = 18.0;
 /// Largest automatic label text (capital height, mm).
 pub(crate) const LABEL_TEXT_MAX: f64 = 6.0;
 /// Room kept clear beside and in front of/behind label text (mm).
@@ -69,8 +73,12 @@ pub struct BinOptions {
     pub fill: f64,
     /// Rounded floor along the front wall of each compartment, to scoop items out (mm, 0: none).
     pub scoop: f64,
+    /// The scoop's radius worked out from the compartment instead (`scoop` is then unused).
+    pub scoop_auto: bool,
     /// A shelf along the back wall of each compartment, at the top, to put a label on.
     pub label: bool,
+    /// The shelf's width, front to back (mm).
+    pub label_w: f64,
     /// Text on the label tabs, one per compartment: back row first, left to right ("" for none).
     pub label_text: Vec<String>,
     /// Capital height of the label text (mm, 0: as big as fits).
@@ -116,6 +124,27 @@ fn inside_top(units: u32, lip: bool, wall: f64) -> f64 {
 }
 
 impl BinOptions {
+    /// Whether the compartments get a scoop.
+    pub fn has_scoop(&self) -> bool {
+        self.scoop_auto || self.scoop > 0.0
+    }
+
+    /// The label tab's width in a compartment `depth` deep: as asked, but at most half the
+    /// compartment and half its height.
+    pub fn label_width(&self, depth: f64) -> f64 {
+        self.label_w.min(depth / 2.0).min((self.sized_top() - self.floor()) / 2.0)
+    }
+
+    /// The scoop's radius in a compartment `depth` deep with a label tab `label` wide. Auto: the
+    /// smallest of the height inside, the depth / 2.5 and SCOOP_AUTO_MAX, so it never reaches
+    /// over the front wall or takes much of a shallow compartment's floor. It always leaves
+    /// room for the label tab.
+    pub fn scoop_radius(&self, depth: f64, label: f64) -> f64 {
+        let room = self.sized_top() - self.floor();
+        let r = if self.scoop_auto { room.min(depth / 2.5).min(SCOOP_AUTO_MAX) } else { self.scoop };
+        r.min(depth - label - 1.0).min(room)
+    }
+
     fn wall(&self) -> f64 {
         bin_wall(self.eco, self.wall)
     }
@@ -126,7 +155,7 @@ impl BinOptions {
     }
 
     /// The top of the inside at the height scoops and label tabs are sized for.
-    fn sized_top(&self) -> f64 {
+    pub fn sized_top(&self) -> f64 {
         inside_top(self.sized_units, self.lip, self.wall())
     }
 
@@ -181,7 +210,7 @@ pub fn label_areas(o: &BinOptions) -> Vec<(f64, f64, f64, f64)> {
     let rows = o.div_y + 1;
     let cols = o.div_x + 1;
     let depth = id / rows as f64 - if rows > 1 { DIVIDER / 2.0 } else { 0.0 };
-    let label = LABEL_W.min(depth / 2.0).min((o.sized_top() - o.floor()) / 2.0);
+    let label = o.label_width(depth);
     let mut v = Vec::new();
     for k in (0..rows).rev() {
         let hi = y0 + id * (k + 1) as f64 / rows as f64 - if k + 1 < rows { DIVIDER / 2.0 } else { 0.0 };
@@ -438,10 +467,9 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
         };
         let depth = row(0).1 - row(0).0;
         let e = 0.01; // reach a little into the wall and floor, so the shapes join solidly
-        let sized = o.sized_top();
-        let label = if o.label { LABEL_W.min(depth / 2.0).min((sized - floor) / 2.0) } else { 0.0 };
+        let label = if o.label { o.label_width(depth) } else { 0.0 };
         let mut profiles = Vec::new();
-        let r = o.scoop.min(depth - label - 1.0).min(sized - floor);
+        let r = o.scoop_radius(depth, label);
         if r > 0.5 {
             for k in 0..rows {
                 let yf = row(k).0;
@@ -757,7 +785,7 @@ mod tests {
     use super::*;
 
     fn bin(nx: u32, ny: u32, units: u32) -> BinOptions {
-        BinOptions { nx, ny, pitch: [PITCH; 2], units, sized_units: units, magnets: true, screws: false, div_x: 1, div_y: 0, lip: true, solid: false, eco: false, fill: 0.0, scoop: 0.0, label: false,
+        BinOptions { nx, ny, pitch: [PITCH; 2], units, sized_units: units, magnets: true, screws: false, div_x: 1, div_y: 0, lip: true, solid: false, eco: false, fill: 0.0, scoop: 0.0, scoop_auto: false, label: false, label_w: LABEL_W,
             label_text: vec![], text_size: 0.0, text_height: 0.4, flush: false, font: String::new(), filler: [0.0; 4], wall: 0.0,
                      origin: [0.0, 0.0], name: "Bin".into() }
     }

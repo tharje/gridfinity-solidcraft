@@ -178,6 +178,7 @@ pub fn parse_bin(params: &Value) -> Result<BinOptions, String> {
         label_text.pop();
     }
     let auto_name = format!("Gridfinity{half} bin {nx}x{ny}x{units}");
+    let (scoop, scoop_auto) = get_scoop(p)?;
     let mut o = BinOptions {
         nx,
         ny,
@@ -192,8 +193,10 @@ pub fn parse_bin(params: &Value) -> Result<BinOptions, String> {
         solid,
         eco,
         fill,
-        scoop: get_mm(p, "inside_scoop", 0.0, 0.0, 40.0)?,
+        scoop,
+        scoop_auto,
         label: get_b(p, &["inside_label_tab"], false)?,
+        label_w: get_mm(p, "inside_label_tab_width", geometry::LABEL_W, 5.0, geometry::LABEL_W_MAX)?,
         text_size: get_mm(p, "inside_label_text_size", 0.0, 0.0, 20.0)?,
         text_height: get_mm(p, "inside_label_text_height", 0.4, 0.1, 3.0)?,
         flush: match p.get("inside_label_text_style") {
@@ -317,6 +320,23 @@ fn get_plate_holes(p: &Map<String, Value>, open: bool) -> Result<(bool, bool), S
         return Err("screw holes need a solid bottom: choose Bottom \"Solid\" or turn Screw holes off".into());
     }
     Ok((magnets, screws))
+}
+
+/// The scoop: None, Auto, or Custom with `inside_scoop_radius`. A number (as before 1.5) is a
+/// custom radius, 0 none. Returns the radius and whether it is Auto.
+fn get_scoop(p: &Map<String, Value>) -> Result<(f64, bool), String> {
+    let radius = || get_mm(p, "inside_scoop_radius", 10.0, 0.0, 40.0);
+    match p.get("inside_scoop") {
+        None | Some(Value::Null) => Ok((0.0, false)),
+        Some(Value::Number(_)) => Ok((get_mm(p, "inside_scoop", 0.0, 0.0, 40.0)?, false)),
+        Some(Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
+            "none" | "" => Ok((0.0, false)),
+            "auto" => Ok((0.0, true)),
+            "custom" => Ok((radius()?, false)),
+            _ => Err("Scoop must be \"None\", \"Auto\" or \"Custom\"".into()),
+        },
+        _ => Err("Scoop must be \"None\", \"Auto\" or \"Custom\"".into()),
+    }
 }
 
 pub fn parse_baseplate(params: &Value) -> Result<BaseplateOptions, String> {
@@ -842,8 +862,27 @@ pub fn apply_edits(params: &Value, edits: &Value) -> Value {
             p[key] = json!(v);
         }
     }
-    if let Some(v) = edits.get("inside_scoop").and_then(|v| v.as_f64()).filter(|&v| v >= 0.0) {
-        p["inside_scoop"] = json!(v);
+    // a radius on its own means a Custom scoop of that size
+    if let Some(v) = edits.get("inside_scoop_radius").and_then(|v| v.as_f64()).filter(|&v| v > 0.0) {
+        p["inside_scoop"] = json!("Custom");
+        p["inside_scoop_radius"] = json!(v);
+    }
+    match edits.get("inside_scoop") {
+        Some(Value::String(s)) if s != KEEP => {
+            // Custom without a new radius keeps the bin's own one, if it had one
+            if s == "Custom" && p.get("inside_scoop_radius").is_none() {
+                if let Some(r) = p.get("inside_scoop").and_then(|v| v.as_f64()).filter(|&r| r > 0.0) {
+                    p["inside_scoop_radius"] = json!(r);
+                }
+            }
+            p["inside_scoop"] = json!(s);
+        }
+        // a number, as before 1.5: -1 keeps
+        Some(Value::Number(n)) if n.as_f64().is_some_and(|v| v >= 0.0) => p["inside_scoop"] = json!(n),
+        _ => {}
+    }
+    if let Some(v) = edits.get("inside_label_tab_width").and_then(|v| v.as_f64()).filter(|&v| v > 0.0) {
+        p["inside_label_tab_width"] = json!(v);
     }
     for key in ["inside", "inside_label_text_style"] {
         if let Some(v) = edits.get(key).and_then(|v| v.as_str()).filter(|&v| v != KEEP) {
@@ -898,7 +937,7 @@ pub fn plan(entry: &str, params: &Value) -> Result<(String, Vec<Value>), String>
         "bin" => {
             let o = parse_bin(params)?;
             let compartments = (o.div_x + 1) * (o.div_y + 1);
-            if !o.solid && (o.scoop > 0.0 || o.label) && compartments > MAX_SCOOP_COMPARTMENTS {
+            if !o.solid && (o.has_scoop() || o.label) && compartments > MAX_SCOOP_COMPARTMENTS {
                 return Err(format!(
                     "{compartments} compartments with a scoop or label tab take longer than SolidCraft allows a plugin \
                      (30 seconds): use at most {MAX_SCOOP_COMPARTMENTS}, or fewer dividers."
@@ -910,7 +949,7 @@ pub fn plan(entry: &str, params: &Value) -> Result<(String, Vec<Value>), String>
                 + if o.eco { ECO_WEIGHT } else { 0.0 };
             let cells = o.nx * o.ny;
             let (dx, dy) = (o.div_x as f64, o.div_y as f64);
-            let scoops = !o.solid && (o.scoop > 0.0 || o.label);
+            let scoops = !o.solid && (o.has_scoop() || o.label);
             let dividers = if o.solid { 0.0 } else { DIVIDER_WEIGHT * (dx + dy) + CROSSING_WEIGHT * dx * dy }
                 + if scoops { SCOOP_WEIGHT * compartments as f64 } else { 0.0 };
             if cells as f64 * weight <= MAX_BIN_CELLS_RUN as f64 && cells as f64 * weight + dividers > MAX_BIN_CELLS_RUN as f64 {
@@ -1649,6 +1688,57 @@ mod tests {
         // too many compartments for one run
         assert!(plan("bin", &json!({"width": 4, "depth": 4, "dividers_x": 6, "dividers_y": 6, "inside_label_tab": true})).unwrap_err().contains("49 compartments"));
         assert!(plan("bin", &json!({"width": 4, "depth": 4, "dividers_x": 6, "dividers_y": 6})).is_ok());
+    }
+
+    #[test]
+    fn scoop_none_auto_custom_and_old_numbers() {
+        let s = |v: Value| { let o = parse_bin(&v).unwrap(); (o.scoop, o.scoop_auto) };
+        assert_eq!(s(json!({"inside_scoop": "None"})), (0.0, false));
+        assert_eq!(s(json!({"inside_scoop": "Auto"})), (0.0, true));
+        assert_eq!(s(json!({"inside_scoop": "Custom"})), (10.0, false));
+        assert_eq!(s(json!({"inside_scoop": "Custom", "inside_scoop_radius": 6})), (6.0, false));
+        assert_eq!(s(json!({"inside_scoop": 7})), (7.0, false));             // scripts from before
+        assert!(parse_bin(&json!({"inside_scoop": "Big"})).is_err());
+        // Auto: the smallest of the height inside, depth / 2.5 and 18 mm
+        let o = parse_bin(&json!({"inside_scoop": "Auto", "height": 6})).unwrap();
+        let room = o.sized_top() - o.floor();
+        assert_eq!(o.scoop_radius(30.0, 0.0), 12.0);                          // shallow: depth / 2.5
+        assert_eq!(o.scoop_radius(80.0, 0.0), 18.0_f64.min(room));          // deep: the cap
+        let low = parse_bin(&json!({"inside_scoop": "Auto", "height": 2})).unwrap();
+        assert_eq!(low.scoop_radius(80.0, 0.0), low.sized_top() - low.floor()); // low: the height inside
+        assert!(plan("bin", &json!({"width": 2, "dividers_y": 1, "inside_scoop": "Auto"})).unwrap().1
+            .iter().any(|v| v["params"]["name"].as_str().is_some_and(|n| n.ends_with("Scoops and labels"))));
+    }
+
+    #[test]
+    fn label_tab_width() {
+        let o = parse_bin(&json!({"inside_label_tab": true, "height": 6})).unwrap();
+        assert_eq!(o.label_width(80.0), 12.0);                                // as before
+        let o = parse_bin(&json!({"inside_label_tab": true, "inside_label_tab_width": 15, "height": 6})).unwrap();
+        assert_eq!(o.label_width(80.0), 15.0);
+        assert_eq!(o.label_width(20.0), 10.0);                                // at most half the compartment
+        assert!(parse_bin(&json!({"inside_label_tab_width": 31})).is_err());
+        // a wider tab leaves less room for the scoop
+        let o = parse_bin(&json!({"inside_scoop": "Custom", "inside_scoop_radius": 30, "height": 6})).unwrap();
+        assert_eq!(o.scoop_radius(40.0, 15.0), 24.0);
+    }
+
+    #[test]
+    fn edit_scoop_and_label_tab_width() {
+        let old = json!({"inside_scoop": 8, "inside_label_tab": true});
+        let keep = json!({"inside_scoop": KEEP, "inside_scoop_radius": 0, "inside_label_tab_width": 0});
+        assert_eq!(apply_edits(&old, &keep), old);
+        let auto = apply_edits(&old, &json!({"inside_scoop": "Auto"}));
+        assert_eq!(auto["inside_scoop"], "Auto");
+        // Custom keeps the bin's own radius
+        let c = apply_edits(&old, &json!({"inside_scoop": "Custom"}));
+        assert_eq!((c["inside_scoop"].as_str(), c["inside_scoop_radius"].as_f64()), (Some("Custom"), Some(8.0)));
+        // a radius on its own makes it Custom
+        let r = apply_edits(&json!({"inside_scoop": "Auto"}), &json!({"inside_scoop_radius": 12}));
+        assert_eq!((r["inside_scoop"].as_str(), r["inside_scoop_radius"].as_f64()), (Some("Custom"), Some(12.0)));
+        let w = apply_edits(&old, &json!({"inside_label_tab_width": 14}));
+        assert_eq!(w["inside_label_tab_width"], 14.0);
+        assert!(parse_bin(&apply_edits(&old, &json!({"inside_scoop": "None"}))).unwrap().scoop == 0.0);
     }
 
     #[test]

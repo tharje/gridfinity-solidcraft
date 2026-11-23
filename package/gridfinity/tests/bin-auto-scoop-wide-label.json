@@ -1,0 +1,20 @@
+{
+  "entry": "bin",
+  "params": {
+    "depth": 2,
+    "height": 6,
+    "dividers_y": 1,
+    "inside_scoop": "Auto",
+    "inside_label_tab": true,
+    "inside_label_tab_width": 15
+  },
+  "expect": {
+    "model": {
+      "body_count": 1,
+      "total": {
+        "volume_mm3": 43551.823
+      }
+    },
+    "tolerance": 0.0001
+  }
+}
