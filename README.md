@@ -41,8 +41,8 @@ one undo step, editable afterwards, and they keep working without the plugin.
   flush with the tab, for a flat two-colour label (`inside_label_text_style`: "Raised" or "Flush
   (inlaid)"), by `inside_label_text_height` (0.4 mm by default, so one or two layers). The size
   (`inside_label_text_size`, capital height) is picked to fit the tab unless you set it, and
-  `inside_label_text_font` takes any installed font (empty: SolidCraft's built-in one). Text adds
-  a label tab by itself.
+  `inside_label_text_font` takes any installed font (empty: SolidCraft's built-in one). The text
+  fields only show, and are only used, with Label tab on.
   Each label becomes a **text parameter** (`Label_1`, `Label_2`, …, `Bin2_Label_1` for the next
   bin): change it in **Parameters** and the label follows, without running the plugin again. The
   size stays as it was fitted, so keep a new label about as long. The label's extrude shows a
