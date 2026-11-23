@@ -179,6 +179,11 @@ pub fn parse_bin(params: &Value) -> Result<BinOptions, String> {
     }
     let auto_name = format!("Gridfinity{half} bin {nx}x{ny}x{units}");
     let (scoop, scoop_auto) = get_scoop(p)?;
+    let (label, sticker, chosen) = get_label_tab(p)?;
+    // text goes on a tab chosen for Printed text: one for a sticker, or none, has none
+    if chosen && (!label || sticker) {
+        label_text.clear();
+    }
     let mut o = BinOptions {
         nx,
         ny,
@@ -195,7 +200,8 @@ pub fn parse_bin(params: &Value) -> Result<BinOptions, String> {
         fill,
         scoop,
         scoop_auto,
-        label: get_b(p, &["inside_label_tab"], false)?,
+        label,
+        sticker,
         label_w: get_mm(p, "inside_label_tab_width", geometry::LABEL_W, 5.0, geometry::LABEL_W_MAX)?,
         text_size: get_mm(p, "inside_label_text_size", 0.0, 0.0, 20.0)?,
         text_height: get_mm(p, "inside_label_text_height", 0.4, 0.1, 3.0)?,
@@ -325,6 +331,25 @@ fn get_plate_holes(p: &Map<String, Value>, open: bool) -> Result<(bool, bool), S
     }
     Ok((magnets, screws))
 }
+
+/// The label tab: None, For sticker (no text; the back wall is made flush with the stacking lip)
+/// or Printed text. true and false (as before 1.5) are a tab with or without text, and none.
+/// Returns whether there is a tab, whether it is for a sticker, and whether one was chosen by name.
+fn get_label_tab(p: &Map<String, Value>) -> Result<(bool, bool, bool), String> {
+    match p.get("inside_label_tab") {
+        None | Some(Value::Null) => Ok((false, false, false)),
+        Some(Value::Bool(b)) => Ok((*b, false, false)),
+        Some(Value::String(s)) => match s.to_ascii_lowercase() {
+            s if s.starts_with("none") => Ok((false, false, true)),
+            s if s.starts_with("for sticker") || s.starts_with("sticker") => Ok((true, true, true)),
+            s if s.starts_with("printed") => Ok((true, false, true)),
+            _ => Err(LABEL_TAB_ERR.into()),
+        },
+        _ => Err(LABEL_TAB_ERR.into()),
+    }
+}
+
+const LABEL_TAB_ERR: &str = "Label tab must be \"None\", \"For sticker\" or \"Printed text\"";
 
 /// The scoop: None, Auto, or Custom with `inside_scoop_radius`. A number (as before 1.5) is a
 /// custom radius, 0 none. Returns the radius and whether it is Auto.
@@ -908,12 +933,19 @@ pub fn apply_edits(params: &Value, edits: &Value) -> Value {
         match edits.get(key).and_then(|v| v.as_str()) {
             Some("Yes") => p[key] = json!(true),
             Some("No") => p[key] = json!(false),
+            Some(s) if key == "inside_label_tab" && s != KEEP => p[key] = json!(s),
             _ => {}
         }
     }
     match edits.get("inside_label_text").and_then(|v| v.as_str()).map(str::trim) {
         Some("-") => p["inside_label_text"] = json!(""),
-        Some(t) if !t.is_empty() => p["inside_label_text"] = json!(t),
+        Some(t) if !t.is_empty() => {
+            p["inside_label_text"] = json!(t);
+            // new text on a bin whose tab is for a sticker, or has none: a tab for the text
+            if p["inside_label_tab"].as_str().is_some_and(|s| !s.to_ascii_lowercase().starts_with("printed")) {
+                p["inside_label_tab"] = json!("Printed text");
+            }
+        }
         _ => {}
     }
     p
@@ -1673,6 +1705,27 @@ mod tests {
         let many = vec!["M3x10"; 17].join(";");
         assert!(parse_bin(&json!({"width": 4, "depth": 4, "dividers_x": 5, "dividers_y": 5, "inside_label_text": many}))
             .unwrap_err().contains("85 letters and digits of label text take longer than SolidCraft allows a plugin (30 seconds): with 36 compartments, use at most 14"));
+    }
+
+    #[test]
+    fn label_tab_none_sticker_or_printed_text() {
+        let t = |v: Value| { let o = parse_bin(&v).unwrap(); (o.label, o.sticker, o.label_text.len()) };
+        assert_eq!(t(json!({"inside_label_tab": "None"})), (false, false, 0));
+        assert_eq!(t(json!({"inside_label_tab": "For sticker"})), (true, true, 0));
+        assert_eq!(t(json!({"inside_label_tab": "Printed text", "inside_label_text": "M3", "height": 6})), (true, false, 1));
+        // text goes only on a tab for printed text
+        assert_eq!(t(json!({"inside_label_tab": "For sticker", "inside_label_text": "M3"})), (true, true, 0));
+        assert_eq!(t(json!({"inside_label_tab": "None", "inside_label_text": "M3"})), (false, false, 0));
+        // as before 1.5: true and false, and text on its own adds a tab
+        assert_eq!(t(json!({"inside_label_tab": true})), (true, false, 0));
+        assert_eq!(t(json!({"inside_label_text": "M3", "height": 6})), (true, false, 1));
+        assert!(parse_bin(&json!({"inside_label_tab": "Big"})).unwrap_err().contains("For sticker"));
+        // edits: the new names, and new text turns a sticker's tab into one for the text
+        let old = json!({"inside_label_tab": "For sticker"});
+        assert_eq!(apply_edits(&old, &json!({"inside_label_tab": "None"}))["inside_label_tab"], "None");
+        assert_eq!(apply_edits(&old, &json!({"inside_label_tab": KEEP}))["inside_label_tab"], "For sticker");
+        assert_eq!(apply_edits(&old, &json!({"inside_label_text": "M3"}))["inside_label_tab"], "Printed text");
+        assert_eq!(apply_edits(&json!({"inside_label_tab": true}), &json!({"inside_label_text": "M3"}))["inside_label_tab"], true);
     }
 
     #[test]

@@ -79,6 +79,9 @@ pub struct BinOptions {
     pub label: bool,
     /// The shelf's width, front to back (mm).
     pub label_w: f64,
+    /// The tab is for a sticker, not printed text: the back wall is made flush with the stacking
+    /// lip, so the lip doesn't hang over the back of the sticker.
+    pub sticker: bool,
     /// Text on the label tabs, one per compartment: back row first, left to right ("" for none).
     pub label_text: Vec<String>,
     /// Capital height of the label text (mm, 0: as big as fits).
@@ -149,6 +152,22 @@ impl BinOptions {
         bin_wall(self.eco, self.wall)
     }
 
+    /// The front and back walls' thickness. Where the stacking lip's overhang is in the way, the
+    /// wall is made as thick as the lip, so its inside is flush with the lip's: in front over a
+    /// scoop, at the back over a tab for a sticker. The side walls stay as they are.
+    pub(crate) fn front_back_walls(&self) -> (f64, f64) {
+        let wall = self.wall();
+        let flush = |on: bool| if on && self.lip && !self.solid { wall.max(LIP.0 + LIP.2) } else { wall };
+        (flush(self.has_scoop()), flush(self.label && self.sticker))
+    }
+
+    /// The inside along Y, past the front and back walls: its front and its depth.
+    fn inside_y(&self) -> (f64, f64) {
+        let (_, cy, _, d) = self.outline();
+        let (front, back) = self.front_back_walls();
+        (cy - d / 2.0 + front, d - front - back)
+    }
+
     /// Top of the floor inside the bin: an eco bin's thin floor lies right on its feet.
     pub(crate) fn floor(&self) -> f64 {
         if self.eco { FOOT.0 + FOOT.1 + FOOT.2 + ECO_WALL } else { FLOOR_Z }
@@ -203,10 +222,12 @@ pub(crate) fn text_width(s: &str, h: f64) -> f64 {
 /// Where label text goes: for each compartment, back row first and left to right, the middle
 /// of the part of its tab that can be seen from above (x, y) and that part's width and depth.
 pub fn label_areas(o: &BinOptions) -> Vec<(f64, f64, f64, f64)> {
-    let (cx, cy, w, d) = o.outline();
+    let (cx, _, w, _) = o.outline();
     let wall = o.wall();
-    let (iw, id) = (w - 2.0 * wall, d - 2.0 * wall);
-    let (x0, y0) = (cx - w / 2.0 + wall, cy - d / 2.0 + wall);
+    let iw = w - 2.0 * wall;
+    let x0 = cx - w / 2.0 + wall;
+    let (y0, id) = o.inside_y();
+    let back_wall = o.front_back_walls().1;
     let rows = o.div_y + 1;
     let cols = o.div_x + 1;
     let depth = id / rows as f64 - if rows > 1 { DIVIDER / 2.0 } else { 0.0 };
@@ -215,7 +236,7 @@ pub fn label_areas(o: &BinOptions) -> Vec<(f64, f64, f64, f64)> {
     for k in (0..rows).rev() {
         let hi = y0 + id * (k + 1) as f64 / rows as f64 - if k + 1 < rows { DIVIDER / 2.0 } else { 0.0 };
         // the lip hangs over the back of the last row's tab
-        let hidden = if k + 1 == rows && o.lip { (LIP.0 + LIP.2 - wall).max(0.0) } else { 0.0 };
+        let hidden = if k + 1 == rows && o.lip { (LIP.0 + LIP.2 - back_wall).max(0.0) } else { 0.0 };
         // under the tab's front edge the 45° underside leaves it thin: sunk text keeps its depth
         // plus the margin of tab under it
         let thin = if o.flush { o.text_height } else { 0.0 };
@@ -455,8 +476,14 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
     let mut keep = Vec::new();
     if hollow {
 
-        let (iw, id) = (w - 2.0 * wall, d - 2.0 * wall);
-        let (x0, y0) = (cx - iw / 2.0, cy - id / 2.0);
+        let iw = w - 2.0 * wall;
+        let x0 = cx - iw / 2.0;
+        let (y0, id) = o.inside_y();
+        // a front or back wall made flush with the lip: from just inside the wall as it is, up to
+        // the top of the lip support, where the inside is flush with the lip anyway
+        let (front_wall, back_wall) = o.front_back_walls();
+        let (y_front, y_back) = (cy - d / 2.0 + wall, cy + d / 2.0 - wall);
+        let lip_top = z + if o.lip { (LIP.0 + LIP.2 - wall).max(0.0) } else { 0.0 };
         // Scoops and label tabs: one profile per row of compartments, drawn across Y on a YZ
         // sketch at the cavity's left side and extruded right across the whole inside.
         let rows = o.div_y + 1;
@@ -476,30 +503,52 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
                 // a concave quarter circle, centre (yf + r, floor + r), from the floor up the
                 // wall, in straight steps (a true arc, tangent to floor and wall, makes the
                 // kernel's boolean fail), closed by lines just inside the wall and floor
-                let mut pts = vec![[yf - e, floor - e]];
+                // (in the front row, through a thickened front wall up to the lip)
+                let thick = k == 0 && front_wall > wall;
+                let back = if thick { y_front - e } else { yf - e };
+                let mut pts = vec![[back, floor - e]];
                 pts.extend((0..=SCOOP_STEPS).map(|i| {
                     let t = std::f64::consts::FRAC_PI_2 * (3.0 - i as f64 / SCOOP_STEPS as f64);
                     [yf + r + r * t.cos(), floor + r + r * t.sin()]
                 }));
-                pts.push([yf - e, floor + r]);
+                if thick {
+                    pts.extend([[yf, lip_top.max(floor + r)], [back, lip_top.max(floor + r)]]);
+                } else {
+                    pts.push([yf - e, floor + r]);
+                }
                 let pts: Vec<[f64; 2]> = pts.iter().map(|&[u, v]| [r4(u), r4(v)]).collect();
                 profiles.push(cmd("sketch.line", json!({"points": pts, "closed": true})));
                 keep.push([x0 - 5.0, yf - 5.0, x0 + iw + 5.0, yf + r]);
             }
         }
+        if front_wall > wall && r <= 0.5 {
+            // no scoop to carry it: the thickened front wall on its own
+            let pts: Vec<[f64; 2]> = [[y_front - e, floor - e], [y0, floor - e], [y0, lip_top], [y_front - e, lip_top]]
+                .iter().map(|&[u, v]| [r4(u), r4(v)]).collect();
+            profiles.push(cmd("sketch.line", json!({"points": pts, "closed": true})));
+        }
         if label > 0.0 {
             for k in 0..rows {
                 let yb = row(k).1;
+                // in the back row, through a thickened back wall up to the lip
+                let thick = k + 1 == rows && back_wall > wall;
+                let back = if thick { y_back + e } else { yb + e };
                 // a 45° underside from the front edge back to the wall; in a bin too low for
                 // that it meets the floor first (or leaves less than 1 mm under the tab), and the
                 // tab stands on a block there. Sized for the planned height, like the scoop: a
                 // bin made taller in Parameters keeps the shape, its front just steeper
                 let room = o.sized_top() - floor;
-                let pts: Vec<[f64; 2]> = if label < room - 1.0 {
-                    vec![[yb + e, z], [yb - label, z], [yb + e, z - label - e]]
+                let mut pts = if thick { vec![[back, lip_top], [yb, lip_top], [yb, z]] } else { vec![[back, z]] };
+                pts.push([yb - label, z]);
+                if label < room - 1.0 {
+                    pts.push([if thick { yb } else { yb + e }, z - label - e]);
+                    if thick {
+                        pts.extend([[yb, floor - e], [back, floor - e]]);
+                    }
                 } else {
-                    vec![[yb + e, z], [yb - label, z], [yb - label + room, floor - e], [yb + e, floor - e]]
-                }.iter().map(|&[u, v]| [r4(u), r4(v)]).collect();
+                    pts.extend([[yb - label + room, floor - e], [back, floor - e]]);
+                }
+                let pts: Vec<[f64; 2]> = pts.iter().map(|&[u, v]| [r4(u), r4(v)]).collect();
                 profiles.push(cmd("sketch.line", json!({"points": pts, "closed": true})));
             }
         }
@@ -515,7 +564,7 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
                 rrect(cx, cy, w, d, top),
                 cmd("sketch.rectangle.two_point", json!({"p0": [r4(cx - w / 2.0 - 5.0), r4(cy - d / 2.0 - 5.0)], "p1": [r4(cx + w / 2.0 + 5.0), r4(cy + d / 2.0 + 5.0)]})),
             ]);
-            let mut cut = extrude(&trim, z - floor + 4.0 * e, Op::Cut(b), None, "positive");
+            let mut cut = extrude(&trim, lip_top - floor + 4.0 * e, Op::Cut(b), None, "positive");
             cut["params"]["profiles"] = json!([{"point": [r4(cx - w / 2.0 - 2.5), r4(cy)]}]);
             out.push(cut);
         }
@@ -794,7 +843,7 @@ mod tests {
     use super::*;
 
     fn bin(nx: u32, ny: u32, units: u32) -> BinOptions {
-        BinOptions { nx, ny, pitch: [PITCH; 2], units, sized_units: units, magnets: true, screws: false, div_x: 1, div_y: 0, lip: true, solid: false, eco: false, fill: 0.0, scoop: 0.0, scoop_auto: false, label: false, label_w: LABEL_W,
+        BinOptions { nx, ny, pitch: [PITCH; 2], units, sized_units: units, magnets: true, screws: false, div_x: 1, div_y: 0, lip: true, solid: false, eco: false, fill: 0.0, scoop: 0.0, scoop_auto: false, label: false, label_w: LABEL_W, sticker: false,
             label_text: vec![], text_size: 0.0, text_height: 0.4, flush: false, font: String::new(), filler: [0.0; 4], wall: 0.0,
                      origin: [0.0, 0.0], name: "Bin".into() }
     }
@@ -838,6 +887,30 @@ mod tests {
         let a = label_areas(&l);
         assert_eq!(a.len(), 1);
         assert!((a[0].0 - 49.0).abs() < 1e-9 && (a[0].2 - (97.5 - 1.9 - 2.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn front_and_back_walls_flush_with_the_lip() {
+        let o = BinOptions { div_x: 0, ..bin(1, 2, 4) };
+        assert_eq!(o.front_back_walls(), (WALL, WALL));
+        // a scoop thickens the front, a tab for a sticker the back, both up to the lip's inside
+        let s = BinOptions { scoop_auto: true, label: true, sticker: true, ..o.clone() };
+        assert_eq!(s.front_back_walls(), (LIP.0 + LIP.2, LIP.0 + LIP.2));
+        // a tab for printed text leaves the back alone; no lip, or a thicker wall, no change
+        assert_eq!(BinOptions { sticker: false, ..s.clone() }.front_back_walls().1, WALL);
+        assert_eq!(BinOptions { lip: false, ..s.clone() }.front_back_walls(), (WALL, WALL));
+        assert_eq!(BinOptions { wall: 3.0, ..s.clone() }.front_back_walls(), (3.0, 3.0));
+        // the lip no longer hides the back of the sticker's tab
+        let a = label_areas(&s);
+        let b = label_areas(&BinOptions { sticker: false, ..s.clone() });
+        assert!(a[0].3 > b[0].3);
+        // the scoop and tab profiles run through the thickened walls, from the walls as they are
+        let c = bin_commands(&s);
+        let lines: Vec<&Value> = c.iter().filter(|v| v["command"] == "sketch.line").collect();
+        let ys = |v: &Value| v["params"]["points"].as_array().unwrap().iter().map(|p| p[0].as_f64().unwrap()).collect::<Vec<_>>();
+        let min = ys(lines[0]).into_iter().fold(f64::MAX, f64::min);
+        let max = ys(lines[1]).into_iter().fold(f64::MIN, f64::max);
+        assert!((min - (0.25 + WALL - 0.01)).abs() < 1e-9 && (max - (84.0 - 0.25 - WALL + 0.01)).abs() < 1e-9, "{min} {max}");
     }
 
     #[test]

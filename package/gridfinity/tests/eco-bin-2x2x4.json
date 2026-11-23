@@ -8,13 +8,13 @@
     "dividers_x": 1,
     "inside_scoop": "Custom",
     "inside_scoop_radius": 10,
-    "inside_label_tab": true
+    "inside_label_tab": "For sticker"
   },
   "expect": {
     "model": {
       "body_count": 1,
       "total": {
-        "volume_mm3": 28765.31
+        "volume_mm3": 35234.204
       }
     },
     "tolerance": 0.0001

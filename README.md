@@ -22,14 +22,19 @@ one undo step, editable afterwards, and they keep working without the plugin.
   under 29 mm.
 - **Scoop and label tab**: a rounded floor along the front wall of each compartment
   (`inside_scoop`), so small parts slide out, and a shelf along the back wall at the top
-  (`inside_label_tab`) for a label. Scoop is None, Auto or Custom: Auto sizes it to the
+  (`inside_label_tab`) for a label. Label tab is None, For sticker or Printed text (see Label
+  text below). Scoop is None, Auto or Custom: Auto sizes it to the
   compartment (the smallest of the height inside, the depth / 2.5 and 18 mm), Custom uses
   `inside_scoop_radius`. The label tab is 12 mm wide (front to back) unless you set
   `inside_label_tab_width` (5–30 mm), for example to a little more than your label tape. Its
   underside slopes at 45° to the back wall; in a bin too low for that it slopes to the floor and
   the tab stands on a block, so a low bin gets the full width too. Scoop radius and Label tab width
   only show when they are used. Both follow the dividers; with them a bin can have up to 36
-  compartments in one run.
+  compartments in one run. With a stacking lip, the lip would hang over the scoop and over the back
+  of a sticker, so there the front wall (with a scoop) and the back wall (with a tab For sticker)
+  are made 2.6 mm thick, flush with the lip. The side walls, and the back wall behind printed text,
+  stay as they are: a 1×2×4 bin with a scoop and a tab for a sticker takes 33.6 cm³ instead of
+  31.0 (38.3 with all walls at 2.6 mm).
 - **Edit bin** (SolidCraft 0.45): click a bin and change some of its settings; the rest stay as
   they were (see [Edit bin](#edit-bin)).
 - **Layout sheet** (SolidCraft 0.46.2): a drawer baseplate comes with a drawing of its pieces, each
@@ -42,7 +47,7 @@ one undo step, editable afterwards, and they keep working without the plugin.
   (inlaid)"), by `inside_label_text_height` (0.4 mm by default, so one or two layers). The size
   (`inside_label_text_size`, capital height) is picked to fit the tab unless you set it, and
   `inside_label_text_font` takes any installed font (empty: SolidCraft's built-in one). The text
-  fields only show, and are only used, with Label tab on.
+  fields only show, and are only used, with Label tab "Printed text".
   Each label becomes a **text parameter** (`Label_1`, `Label_2`, …, `Bin2_Label_1` for the next
   bin): change it in **Parameters** and the label follows, without running the plugin again. The
   size stays as it was fitted, so keep a new label about as long. The label's extrude shows a
@@ -284,9 +289,9 @@ run an entry with that hash ([examples/](examples/)).
 
 | Entry | Parameters (default) |
 |---|---|
-| `bin` | `grid` "42 mm (full)" / "21 mm (half)" / "Custom (sizes below)", `custom_size_x`, `custom_size_y` 15–100 mm (42, Custom only), `width` up to 504 mm and 24 cells (1), `depth` (1), `height` 2–20 units (3), `inside` "Hollow" / "Eco (thin walls, hollow feet)" / "Solid (for custom cutouts)", `dividers_x` 0–10 (0), `dividers_y` 0–10 (0), `holes_magnet` (false), `holes_screw` (false), `inside_scoop` "None" / "Auto" / "Custom" (None), `inside_scoop_radius` 1–40 mm (10, Custom only), `inside_label_tab` (false), `inside_label_tab_width` 5–30 mm (12, Label tab only), `inside_label_text` (labels separated by `;`), `inside_label_text_size` 0–20 mm (0: fit), `inside_label_text_height` 0.1–3 mm (0.4), `inside_label_text_style` "Raised" / "Flush (inlaid)", `inside_label_text_font` (installed font, empty: built-in), `inside_fill_height` mm (0: to the top; solid bins, from 6 mm to 1 mm under the inside top), `inside_wall` 0.4–5 mm (0: standard), `filler_left`, `filler_right`, `filler_front`, `filler_back` 0–200 mm (0), `position_x`, `position_y` mm (0, the corner of the bin with its filler), `stacking_lip` (true), `title` (body name; empty: automatic, with the real size) |
+| `bin` | `grid` "42 mm (full)" / "21 mm (half)" / "Custom (sizes below)", `custom_size_x`, `custom_size_y` 15–100 mm (42, Custom only), `width` up to 504 mm and 24 cells (1), `depth` (1), `height` 2–20 units (3), `inside` "Hollow" / "Eco (thin walls, hollow feet)" / "Solid (for custom cutouts)", `dividers_x` 0–10 (0), `dividers_y` 0–10 (0), `holes_magnet` (false), `holes_screw` (false), `inside_scoop` "None" / "Auto" / "Custom" (None), `inside_scoop_radius` 1–40 mm (10, Custom only), `inside_label_tab` "None" / "For sticker" / "Printed text" (None; `true` and `false` from before still work in saved bins), `inside_label_tab_width` 5–30 mm (12, with a tab only), `inside_label_text` (labels separated by `;`), `inside_label_text_size` 0–20 mm (0: fit), `inside_label_text_height` 0.1–3 mm (0.4), `inside_label_text_style` "Raised" / "Flush (inlaid)", `inside_label_text_font` (installed font, empty: built-in), `inside_fill_height` mm (0: to the top; solid bins, from 6 mm to 1 mm under the inside top), `inside_wall` 0.4–5 mm (0: standard), `filler_left`, `filler_right`, `filler_front`, `filler_back` 0–200 mm (0), `position_x`, `position_y` mm (0, the corner of the bin with its filler), `stacking_lip` (true), `title` (body name; empty: automatic, with the real size) |
 | `baseplate` | `grid`, `custom_size_x`, `custom_size_y`, `width` (3), `depth` (3), `bottom` "Solid" / "Open (frame only)", `holes_magnet` (false, solid only), `holes_screw` (false, solid only), `filler_left`, `filler_right`, `filler_front`, `filler_back` 0–200 mm (0), `leftover` "Half cells" / "Solid", `position_x`, `position_y` mm (0, the corner of the plate with its filler), `title` |
-| `edit` | `bin` (one picked body: `[{"type": "body", "name": "<bin's name>"}]`), and what to change: `cells_x` (width), `cells_y` (depth), `height` (0: keep; `width` and `depth` work too), `dividers_x`, `dividers_y` (-1: keep), `inside_scoop` ("Keep" / "None" / "Auto" / "Custom"), `inside_scoop_radius` mm (0: keep; Custom only), `inside_label_tab_width` mm (0: keep; not with Label tab "No"), `inside` ("Keep" or as on `bin`), `holes_magnet`, `holes_screw`, `stacking_lip`, `inside_label_tab` ("Keep" / "Yes" / "No"), `inside_label_text` (empty: keep, `-`: none), `inside_label_text_style` ("Keep" or as on `bin`), `inside_label_text_size` mm (-1: keep), `inside_label_text_height` mm (0: keep), `inside_label_text_font` (empty: keep, `-`: built-in) |
+| `edit` | `bin` (one picked body: `[{"type": "body", "name": "<bin's name>"}]`), and what to change: `cells_x` (width), `cells_y` (depth), `height` (0: keep; `width` and `depth` work too), `dividers_x`, `dividers_y` (-1: keep), `inside_scoop` ("Keep" / "None" / "Auto" / "Custom"), `inside_scoop_radius` mm (0: keep; Custom only), `inside_label_tab_width` mm (0: keep; not with Label tab "None"), `inside` ("Keep" or as on `bin`), `holes_magnet`, `holes_screw`, `stacking_lip`, `inside_label_tab` ("Keep" / "None" / "For sticker" / "Printed text"), `inside_label_text` (empty: keep, `-`: none; new text on a tab For sticker makes it Printed text; the text fields show with Keep and Printed text), `inside_label_text_style` ("Keep" or as on `bin`), `inside_label_text_size` mm (-1: keep), `inside_label_text_height` mm (0: keep), `inside_label_text_font` (empty: keep, `-`: built-in) |
 | `drawer` | `drawer_width`, `drawer_depth` 15–1000 mm (300), `printer_x`, `printer_y` 50–1000 mm (256), `grid`, `custom_size_x`, `custom_size_y`, `bottom`, `holes_magnet`, `holes_screw`, `filler_x` "Even (both sides)" / "Left" / "Right", `filler_y` "Even (both sides)" / "Front" / "Back", `leftover` "Half cells" / "Solid", `piece` (0: all), `position_x`, `position_y` mm (0), `title`, `layout_sheet` (true), `floor` (SolidCraft 0.44+: one picked face, e.g. `[{"type": "face", "body": "Drawer", "index": 10}]`; sets the size and position) |
 
 Scripts may also say `"full"` / `"half"` / `"custom"` / `"open"` and use the older names `magnets`, `screws`, `name` and `origin: [x, y]`.

@@ -10,7 +10,7 @@
     "holes_magnet": "Keep",
     "holes_screw": "Keep",
     "stacking_lip": "Keep",
-    "inside_label_tab": "Yes",
+    "inside_label_tab": "Printed text",
     "inside_label_text": "A",
     "bin": [
       {

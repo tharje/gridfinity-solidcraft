@@ -5,14 +5,14 @@
     "height": 6,
     "dividers_y": 1,
     "inside_scoop": "Auto",
-    "inside_label_tab": true,
+    "inside_label_tab": "Printed text",
     "inside_label_tab_width": 15
   },
   "expect": {
     "model": {
       "body_count": 1,
       "total": {
-        "volume_mm3": 43551.823
+        "volume_mm3": 45519.089
       }
     },
     "tolerance": 0.0001
