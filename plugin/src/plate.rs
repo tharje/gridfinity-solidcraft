@@ -20,32 +20,28 @@ pub const TAB_DEPTH: f64 = 1.8;
 /// Half-width of a tab at the seam and at its far end: the far end is wider, so it locks.
 pub const TAB_NECK: f64 = 3.0;
 pub const TAB_HEAD: f64 = 4.5;
-/// Gap left around a tab in the socket it fits into (mm, each side and at its end). Small, so
-/// the pieces press together: 0.15 mm printed loose on an Elegoo CC2 in PETG.
-pub const CLEARANCE: f64 = 0.05;
-/// Gap above a tab, so the piece with the sockets still sits flat.
+/// Gap left around a tab in the socket it fits into (mm, each side and at its end), and above
+/// it, so the piece with the sockets still sits flat.
+pub const CLEARANCE: f64 = 0.15;
 pub const CLEARANCE_TOP: f64 = 0.15;
-/// An open frame (no floor) is too thin round its sockets to be pressed together: a tab that
-/// comes down a little off bends the socket's edge, and then it won't go in at all. Its tabs
-/// and sockets get more room and lean in towards the top (`LEAD_IN` degrees), so a tab finds its
-/// socket by itself and the gap round it stays the same all the way up.
-pub const CLEARANCE_OPEN: f64 = 0.15;
-pub const LEAD_IN: f64 = 15.0;
-/// How far back from the seam a leaning tab and socket start (mm): more than the lean moves in
-/// over a tab's height.
+/// Tabs and sockets lean in towards the top, so a tab that comes down a little off finds its
+/// socket by itself instead of bending the socket's edge (an open frame's thin edges bent and
+/// then wouldn't go in at all), and the gap round it stays the same all the way up. They lean
+/// in this far over a tab's height (mm): 15° on an open frame's tab, less on a taller one, so a
+/// tall tab keeps its width.
+pub const LEAD_IN: f64 = 0.67;
+/// How far back from the seam a tab and its socket start (mm): more than they lean in, or the
+/// lean would carry the tab's back edge past the seam.
 pub const LEAN_BACK: f64 = 1.0;
 
-/// A tab (`grow` 0) or its socket: straight, or leaning and starting further back.
-fn joint_shape(axis: usize, s: f64, c: f64, grow: f64, lean: Option<f64>) -> Vec<[f64; 2]> {
-    match lean {
-        Some(_) => dovetail_from(axis, s, c, grow, s - LEAN_BACK),
-        None => dovetail(axis, s, c, grow),
-    }
+/// A tab (`grow` 0) or its socket, leaning in and starting `LEAN_BACK` behind the seam.
+fn joint_shape(axis: usize, s: f64, c: f64, grow: f64) -> Vec<[f64; 2]> {
+    dovetail_from(axis, s, c, grow, s - LEAN_BACK)
 }
 
-/// The gap round a tab in its socket, and the taper of both (None: straight).
-pub fn joint(open: bool) -> (f64, Option<f64>) {
-    if open { (CLEARANCE_OPEN, Some(-LEAD_IN)) } else { (CLEARANCE, None) }
+/// The taper (degrees, for the extrude) of a tab `tab_h` high and its socket.
+pub fn lean(tab_h: f64) -> f64 {
+    -r4((LEAD_IN / tab_h).atan().to_degrees())
 }
 
 /// Height of a baseplate: an open frame is just the pocket profile high (the pockets end at its
@@ -251,14 +247,14 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
         out.push(cmd("solid.combine", json!({"target": b, "tools": strips, "operation": "join"})));
     }
     let tab_h = tab_height(h);
-    let (gap, lean) = joint(p.open);
+    let (gap, lean) = (CLEARANCE, Some(lean(tab_h)));
     let row_c = y0 + py / 2.0;
     if p.sockets[0] {
-        sketch(out, 0.0, &n("Sockets X"), vec![polygon(&joint_shape(0, x0 - fl, row_c, gap, lean))]);
+        sketch(out, 0.0, &n("Sockets X"), vec![polygon(&joint_shape(0, x0 - fl, row_c, gap))]);
         out.push(extrude(&n("Sockets X"), tab_h + CLEARANCE_TOP, Op::Cut(b), lean, ""));
     }
     if p.tabs[0] {
-        sketch(out, 0.0, &n("Tabs X"), vec![polygon(&joint_shape(0, x1 + fr, row_c, 0.0, lean))]);
+        sketch(out, 0.0, &n("Tabs X"), vec![polygon(&joint_shape(0, x1 + fr, row_c, 0.0))]);
         out.push(extrude(&n("Tabs X"), tab_h, Op::Join(b), lean, ""));
     }
     // every row; then the first (front) and last (back) rows get their own things
@@ -292,7 +288,7 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
     let back = back + fb;
     corners(out, &n("Corners front"), &front_body, h, &[(p.round[0], [left, front], [1.0, 1.0]), (p.round[1], [right, front], [-1.0, 1.0])]);
     if p.sockets[1] {
-        let mut v = vec![polygon(&joint_shape(1, front, col_c, gap, lean))];
+        let mut v = vec![polygon(&joint_shape(1, front, col_c, gap))];
         v.extend(pattern(nx, px, 1, 0.0));
         sketch(out, 0.0, &n("Sockets Y"), v);
         out.push(extrude(&n("Sockets Y"), tab_h + CLEARANCE_TOP, Op::Cut(b), lean, ""));
@@ -308,7 +304,7 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
     }
     corners(out, &n("Corners back"), &back_body, h, &[(p.round[2], [right, back], [-1.0, -1.0]), (p.round[3], [left, back], [1.0, -1.0])]);
     if p.tabs[1] {
-        let mut v = vec![polygon(&joint_shape(1, back, col_c, 0.0, lean))];
+        let mut v = vec![polygon(&joint_shape(1, back, col_c, 0.0))];
         v.extend(pattern(nx, px, 1, 0.0));
         sketch(out, 0.0, &n("Tabs Y"), v);
         out.push(extrude(&n("Tabs Y"), tab_h, Op::Join(last), lean, ""));
