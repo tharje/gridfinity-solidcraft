@@ -4,16 +4,17 @@
     "width": 2,
     "depth": 2,
     "height": 4,
-    "inside": "Eco",
+    "inside": "Eco (thin walls, hollow feet)",
     "dividers_x": 1,
-    "inside_scoop": 10,
+    "inside_scoop": "Custom",
+    "inside_scoop_radius": 10,
     "inside_label_tab": true
   },
   "expect": {
     "model": {
       "body_count": 1,
       "total": {
-        "volume_mm3": 26779.534
+        "volume_mm3": 28765.31
       }
     },
     "tolerance": 0.0001

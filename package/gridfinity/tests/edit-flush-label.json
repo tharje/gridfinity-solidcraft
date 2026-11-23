@@ -5,7 +5,7 @@
     "height": 0,
     "dividers_x": -1,
     "dividers_y": -1,
-    "inside_scoop": -1,
+    "inside_scoop": "Keep",
     "inside": "Keep",
     "holes_magnet": "Keep",
     "holes_screw": "Keep",

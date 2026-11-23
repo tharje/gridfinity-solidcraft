@@ -130,9 +130,9 @@ impl BinOptions {
     }
 
     /// The label tab's width in a compartment `depth` deep: as asked, but at most half the
-    /// compartment and half its height.
+    /// compartment. A bin of any height takes it: in a low one the tab stands on the floor.
     pub fn label_width(&self, depth: f64) -> f64 {
-        self.label_w.min(depth / 2.0).min((self.sized_top() - self.floor()) / 2.0)
+        self.label_w.min(depth / 2.0)
     }
 
     /// The scoop's radius in a compartment `depth` deep with a label tab `label` wide. Auto: the
@@ -490,7 +490,16 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
         if label > 0.0 {
             for k in 0..rows {
                 let yb = row(k).1;
-                let pts: Vec<[f64; 2]> = [[yb + e, z], [yb - label, z], [yb + e, z - label - e]].iter().map(|&[u, v]| [r4(u), r4(v)]).collect();
+                // a 45° underside from the front edge back to the wall; in a bin too low for
+                // that it meets the floor first (or leaves less than 1 mm under the tab), and the
+                // tab stands on a block there. Sized for the planned height, like the scoop: a
+                // bin made taller in Parameters keeps the shape, its front just steeper
+                let room = o.sized_top() - floor;
+                let pts: Vec<[f64; 2]> = if label < room - 1.0 {
+                    vec![[yb + e, z], [yb - label, z], [yb + e, z - label - e]]
+                } else {
+                    vec![[yb + e, z], [yb - label, z], [yb - label + room, floor - e], [yb + e, floor - e]]
+                }.iter().map(|&[u, v]| [r4(u), r4(v)]).collect();
                 profiles.push(cmd("sketch.line", json!({"points": pts, "closed": true})));
             }
         }

@@ -248,16 +248,20 @@ pub fn parse_bin(params: &Value) -> Result<BinOptions, String> {
 /// take this many of the two together (30 seconds); sunk (flush) letters count twice.
 const LABEL_BUDGET: usize = 50;
 
-/// Why a label tab has no room for text: in a low bin the tab is small, and the stacking lip covers
-/// its back. Says how tall the bin must be, or that turning the lip off is enough.
+/// Why a label tab has no room for text: the tab is narrow, or the stacking lip covers its back.
+/// Says how wide the tab must be, how tall the bin must be, or that turning the lip off is enough.
 fn too_low(o: &BinOptions) -> String {
-    let fits = |units: u32, lip: bool| {
-        let q = BinOptions { units, sized_units: units, lip, ..o.clone() };
+    let fits = |units: u32, lip: bool, label_w: f64| {
+        let q = BinOptions { units, sized_units: units, lip, label_w, ..o.clone() };
         label_areas(&q).iter().zip(&o.label_text).all(|(a, t)| a.3 / text_depth(t) >= 2.0)
     };
-    let taller = (o.units + 1..=o.units + 10).find(|&k| fits(k, o.lip));
-    let lip_off = o.lip && fits(o.units, false);
+    let wider = (o.label_w.floor() as u32 + 1..=geometry::LABEL_W_MAX as u32).find(|&w| fits(o.units, o.lip, w as f64));
+    let taller = (o.units + 1..=o.units + 10).find(|&k| fits(k, o.lip, o.label_w));
+    let lip_off = o.lip && fits(o.units, false, o.label_w);
     let mut fix = Vec::new();
+    if let Some(w) = wider {
+        fix.push(format!("make Label tab width {w} mm"));
+    }
     if let Some(k) = taller {
         fix.push(format!("make the bin {k} units tall"));
     }
@@ -1652,16 +1656,20 @@ mod tests {
         assert!(!c.iter().any(|v| v["command"] == "sketch.text"));
 
         assert!(parse_bin(&json!({"inside_label_text": "a; b"})).unwrap_err().contains("2 labels, but the bin has 1 compartment:"));
-        // a low bin's tab is too small for text, however wide: say how to fix that, not "shorter"
+        // a low bin's tab stands on the floor, so it has the full width for text
         let low = json!({"width": 3, "depth": 3, "height": 2, "dividers_x": 3, "inside_label_text": "M12; M13; M14",
             "inside_label_text_style": "Flush (inlaid)"});
-        assert_eq!(parse_bin(&low).unwrap_err(), "A bin 2 units tall has too small a label tab for text under its stacking lip: \
-            make the bin 3 units tall, or turn Stacking lip off.");
+        assert!(parse_bin(&low).is_ok());
+        // a narrow tab is too small for text: say how to fix that, not "shorter"
+        let mut narrow = low.clone();
+        narrow["inside_label_tab_width"] = json!(5);
+        assert_eq!(parse_bin(&narrow).unwrap_err(), "A bin 2 units tall has too small a label tab for text under its stacking lip: \
+            make Label tab width 6 mm, or turn Stacking lip off.");
         assert!(parse_bin(&json!({"width": 3, "depth": 3, "height": 3, "dividers_x": 3, "inside_label_text": "M12; M13; M14",
             "inside_label_text_style": "Flush (inlaid)"})).is_ok());
         assert!(parse_bin(&json!({"inside": "Solid (for custom cutouts)", "inside_label_text": "x"})).unwrap_err().contains("hollow"));
         assert!(parse_bin(&json!({"inside_label_text": "A very long label for one small cell"})).unwrap_err().contains("does not fit"));
-        assert!(parse_bin(&json!({"width": 2, "inside_label_text": "M3", "inside_label_text_size": 8})).unwrap_err().contains("at 8 mm"));
+        assert!(parse_bin(&json!({"width": 2, "inside_label_text": "M3", "inside_label_text_size": 12})).unwrap_err().contains("at 12 mm"));
         let many = vec!["M3x10"; 17].join(";");
         assert!(parse_bin(&json!({"width": 4, "depth": 4, "dividers_x": 5, "dividers_y": 5, "inside_label_text": many}))
             .unwrap_err().contains("85 letters and digits of label text take longer than SolidCraft allows a plugin (30 seconds): with 36 compartments, use at most 14"));
@@ -1717,6 +1725,10 @@ mod tests {
         let o = parse_bin(&json!({"inside_label_tab": true, "inside_label_tab_width": 15, "height": 6})).unwrap();
         assert_eq!(o.label_width(80.0), 15.0);
         assert_eq!(o.label_width(20.0), 10.0);                                // at most half the compartment
+        // a low bin gets the width asked for too: the tab stands on the floor
+        let low = parse_bin(&json!({"inside_label_tab": true, "inside_label_tab_width": 20, "height": 2})).unwrap();
+        assert!(low.sized_top() - low.floor() < 20.0);
+        assert_eq!(low.label_width(80.0), 20.0);
         assert!(parse_bin(&json!({"inside_label_tab_width": 31})).is_err());
         // a wider tab leaves less room for the scoop
         let o = parse_bin(&json!({"inside_scoop": "Custom", "inside_scoop_radius": 30, "height": 6})).unwrap();
