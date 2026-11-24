@@ -767,32 +767,7 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
 
 pub fn baseplate_commands(o: &BaseplateOptions) -> Vec<Value> {
     let mut out = Vec::new();
-    let piece = baseplate_piece(o);
-    crate::plate::piece_commands(&mut out, &piece);
-    if !o.leave_out.is_empty() {
-        // Cells left out are cut away. A cell's edge is the same as the plate's outer edge, so
-        // what stays looks as if it were made that shape. The cut reaches past the cell where
-        // there is nothing to keep beside it (the plate's edge, its filler, a cell also left
-        // out), so no thin wall is left there.
-        let [px, py] = o.pitch;
-        let [x0, y0] = piece.cells.corner;
-        let [fl, fr, ff, fb] = o.filler;
-        let out_at = |c: i64, r: i64| c < 1 || r < 1 || c > o.nx as i64 || r > o.ny as i64
-            || o.leave_out.contains(&[c as u32, r as u32]);
-        let rects = o.leave_out.iter().map(|&[c, r]| {
-            let (ci, ri) = (c as i64, r as i64);
-            let reach = |outside: bool, edge: bool, filler: f64| if !outside { 0.0 } else if edge { filler + 0.5 } else { 0.5 };
-            let left = reach(out_at(ci - 1, ri), c == 1, fl);
-            let right = reach(out_at(ci + 1, ri), c == o.nx, fr);
-            let front = reach(out_at(ci, ri - 1), r == 1, ff);
-            let back = reach(out_at(ci, ri + 1), r == o.ny, fb);
-            let (xa, ya) = (x0 + px * (c - 1) as f64, y0 + py * (r - 1) as f64);
-            cmd("sketch.rectangle.two_point", json!({"p0": [r4(xa - left), r4(ya - front)], "p1": [r4(xa + px + right), r4(ya + py + back)]}))
-        }).collect();
-        let name = format!("{} Left out", o.name);
-        sketch(&mut out, -0.5, &name, rects);
-        out.push(extrude(&name, piece.h + 1.0, Op::Cut(&o.name), None, ""));
-    }
+    crate::plate::piece_commands(&mut out, &baseplate_piece(o));
     out
 }
 
@@ -815,7 +790,24 @@ pub fn baseplate_piece(o: &BaseplateOptions) -> crate::plate::Piece {
         tabs: [false; 2],
         sockets: [false; 2],
         make_cell: true,
+        cuts: left_out_rects(o, corner),
     }
+}
+
+/// The rectangles that cut away a base plate's cells left out. A cut reaches past its cell where
+/// there is nothing to keep beside it (the plate's edge, its filler, a cell also left out), so no
+/// thin wall is left there.
+fn left_out_rects(o: &BaseplateOptions, corner: [f64; 2]) -> Vec<[f64; 4]> {
+    let [px, py] = o.pitch;
+    let [fl, fr, ff, fb] = o.filler;
+    let gone = |c: i64, r: i64| c < 1 || r < 1 || c > o.nx as i64 || r > o.ny as i64 || o.leave_out.contains(&[c as u32, r as u32]);
+    o.leave_out.iter().map(|&[c, r]| {
+        let (ci, ri) = (c as i64, r as i64);
+        let reach = |outside: bool, edge: bool, filler: f64| if !outside { 0.0 } else if edge { filler + 0.5 } else { 0.5 };
+        let (xa, ya) = (corner[0] + px * (c - 1) as f64, corner[1] + py * (r - 1) as f64);
+        [xa - reach(gone(ci - 1, ri), c == 1, fl), ya - reach(gone(ci, ri - 1), r == 1, ff),
+         xa + px + reach(gone(ci + 1, ri), c == o.nx, fr), ya + py + reach(gone(ci, ri + 1), r == o.ny, fb)]
+    }).collect()
 }
 
 /// The commands with every `@pattern` written out as copies of the shapes it repeats: what

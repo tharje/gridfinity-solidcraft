@@ -135,6 +135,8 @@ pub struct Piece {
     pub sockets: [bool; 2],
     /// Make the first cell (else a body of this name already holds it, see `first_cell`).
     pub make_cell: bool,
+    /// Rectangles cut out of the piece at the end ([x0, y0, x1, y1]): the cells left out.
+    pub cuts: Vec<[f64; 4]>,
 }
 
 /// The half cells strips are copied from, one of each size (21 x 42 beside the cells, 42 x 21
@@ -328,6 +330,14 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
     }
     if !late.is_empty() {
         out.push(cmd("solid.combine", json!({"target": b, "tools": late, "operation": "join"})));
+    }
+    // Cells left out are cut away last. A cell's edge is the same as the plate's outer edge, so
+    // what stays looks as if it were made that shape.
+    if !p.cuts.is_empty() {
+        let rects = p.cuts.iter().map(|[xa, ya, xb, yb]|
+            cmd("sketch.rectangle.two_point", json!({"p0": [r4(*xa), r4(*ya)], "p1": [r4(*xb), r4(*yb)]}))).collect();
+        sketch(out, -0.5, &n("Left out"), rects);
+        out.push(extrude(&n("Left out"), h + 1.0, Op::Cut(b), None, ""));
     }
 }
 

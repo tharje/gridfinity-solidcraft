@@ -1,0 +1,18 @@
+{
+  "entry": "drawer",
+  "params": {
+    "drawer_width": 399.5,
+    "drawer_depth": 259.5,
+    "leave_out": "4-3, 4-4, 4-5, 4-6, 5-3, 5-4, 5-5, 5-6, 6-3, 6-4, 6-5, 6-6, 7-3, 7-4, 7-5, 7-6",
+    "layout_sheet": false
+  },
+  "expect": {
+    "model": {
+      "body_count": 4,
+      "total": {
+        "volume_mm3": 96065.619
+      }
+    },
+    "tolerance": 0.0001
+  }
+}

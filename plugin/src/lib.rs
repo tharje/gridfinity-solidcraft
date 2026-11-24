@@ -422,7 +422,7 @@ fn get_leave_out(p: &Map<String, Value>, nx: u32, ny: u32) -> Result<Vec<[u32; 2
             cells.push(cell);
         }
     }
-    if cells.len() as u32 == nx * ny {
+    if cells.len() as u64 == nx as u64 * ny as u64 {
         return Err("Leave out cells: that leaves no cells".into());
     }
     cells.sort();
@@ -620,6 +620,7 @@ pub fn parse_drawer(params: &Value) -> Result<DrawerOptions, String> {
         gap: if picked_floor(params).is_some() { 0.0 } else { LAYOUT_GAP },
         name: get_name(p, &format!("Gridfinity{half} drawer {}x{}", drawer[0], drawer[1]))?,
         piece,
+        leave_out: get_leave_out(p, u32::MAX, u32::MAX)?,
     })
 }
 
@@ -1097,8 +1098,10 @@ mod guest {
     }
 
     /// The picked face's outline as an axis-aligned rectangle: its size, its minimum corner and
-    /// its height. The face must be flat and face up. Its outline is the edges that name it.
-    fn floor_rect(face: &Value) -> Result<([f64; 2], [f64; 2], f64), String> {
+    /// its height, and the outline itself as segments seen from above (an arc as two). The face
+    /// must be flat and face up. Its outline is the edges that name it.
+    #[allow(clippy::type_complexity)]
+    fn floor_rect(face: &Value) -> Result<([f64; 2], [f64; 2], f64, Vec<[[f64; 2]; 2]>), String> {
         let body = face["body"].as_str().ok_or("Drawer floor: pick a face")?;
         let index = face["index"].as_u64().ok_or("Drawer floor: pick a face")?;
         let faces = host("model.faces", json!({"body": body}))?;
@@ -1111,9 +1114,17 @@ mod guest {
         let edges = host("model.edges", json!({"body": body}))?;
         let (mut lo, mut hi) = ([f64::MAX; 2], [f64::MIN; 2]);
         let mut z = 0.0;
+        let mut outline = Vec::new();
         for e in edges["edges"].as_array().into_iter().flatten() {
             if !e["name"].as_str().unwrap_or_default().split('|').any(|n| n == name) {
                 continue;
+            }
+            let xy = |k: &str| [e[k][0].as_f64().unwrap_or(0.0), e[k][1].as_f64().unwrap_or(0.0)];
+            if e["mid"].is_array() {
+                outline.push([xy("start"), xy("mid")]);
+                outline.push([xy("mid"), xy("end")]);
+            } else {
+                outline.push([xy("start"), xy("end")]);
             }
             for k in ["start", "end", "mid"] {
                 for i in 0..2 {
@@ -1129,7 +1140,7 @@ mod guest {
         }
         // Walls may be bodies of their own standing on a bigger floor: stop at them.
         let (lo, hi) = up_to_walls(lo, hi, z, &wall_faces(lo, hi, z));
-        Ok(([hi[0] - lo[0], hi[1] - lo[1]], lo, z))
+        Ok(([hi[0] - lo[0], hi[1] - lo[1]], lo, z, outline))
     }
 
     /// The upright faces, square to x or y, of every body over the floor that rises above it.
@@ -1273,8 +1284,18 @@ mod guest {
         let mut params = params;
         let mut lift = 0.0;
         if let Some(face) = picked_floor(&params).filter(|_| entry == "drawer").cloned() {
-            let (size, corner, z) = floor_rect(&face).map_err(&invalid)?;
+            let (size, corner, z, outline) = floor_rect(&face).map_err(&invalid)?;
             params = fill_floor(&params, size, corner);
+            // a floor that isn't a rectangle: the cells off it are left out
+            let o = parse_drawer(&params).map_err(&invalid)?;
+            let mut cells = o.leave_out.clone();
+            for c in drawer::cells_off_floor(&o, &outline, FLOOR_CLEARANCE / 2.0).map_err(&invalid)? {
+                if !cells.contains(&c) {
+                    cells.push(c);
+                }
+            }
+            cells.sort();
+            params["leave_out"] = json!(cells.iter().map(|[c, r]| format!("{c}-{r}")).collect::<Vec<_>>().join(", "));
             lift = z;
         }
         let (mut body, mut cmds) = plan(entry, &params).map_err(&invalid)?;
