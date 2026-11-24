@@ -4,7 +4,9 @@
     "drawer_width": 400,
     "drawer_depth": 300,
     "printer_x": 256,
-    "printer_y": 256
+    "printer_y": 256,
+    "grid": "42 mm (full)",
+    "bottom": "Solid"
   },
   "expect": {
     "model": {

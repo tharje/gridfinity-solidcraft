@@ -5,7 +5,8 @@
     "width": 2,
     "depth": 3,
     "holes_magnet": true,
-    "holes_screw": true
+    "holes_screw": true,
+    "bottom": "Solid"
   },
   "expect": {
     "model": {

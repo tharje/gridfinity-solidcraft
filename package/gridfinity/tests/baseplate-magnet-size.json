@@ -6,7 +6,9 @@
     "holes_magnet": true,
     "holes_screw": true,
     "magnet_diameter": 6.8,
-    "magnet_depth": 3
+    "magnet_depth": 3,
+    "grid": "42 mm (full)",
+    "bottom": "Solid"
   },
   "expect": {
     "model": {

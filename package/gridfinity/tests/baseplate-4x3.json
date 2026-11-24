@@ -3,7 +3,9 @@
   "params": {
     "width": 4,
     "depth": 3,
-    "holes_magnet": true
+    "holes_magnet": true,
+    "grid": "42 mm (full)",
+    "bottom": "Solid"
   },
   "expect": {
     "model": {

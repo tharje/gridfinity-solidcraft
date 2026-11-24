@@ -5,7 +5,9 @@
     "depth": 3,
     "holes_magnet": true,
     "filler_right": 10,
-    "leave_out": "1-3, 2-3, 4-1"
+    "leave_out": "1-3, 2-3, 4-1",
+    "grid": "42 mm (full)",
+    "bottom": "Solid"
   },
   "expect": {
     "model": {

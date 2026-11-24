@@ -5,7 +5,9 @@
     "drawer_depth": 600,
     "printer_x": 256,
     "printer_y": 256,
-    "holes_magnet": true
+    "holes_magnet": true,
+    "grid": "42 mm (full)",
+    "bottom": "Solid"
   },
   "expect": {
     "model": {

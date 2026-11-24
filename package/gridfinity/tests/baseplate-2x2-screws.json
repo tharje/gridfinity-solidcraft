@@ -3,7 +3,9 @@
   "params": {
     "width": 2,
     "depth": 2,
-    "holes_screw": true
+    "holes_screw": true,
+    "grid": "42 mm (full)",
+    "bottom": "Solid"
   },
   "expect": {
     "model": {
