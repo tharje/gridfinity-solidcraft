@@ -1375,6 +1375,7 @@ mod guest {
                 "panel-select" => panel_select(&params),
                 e if e.starts_with("quick-") => quick(e),
                 "layout-remove" | "layout-restore" => layout(&entry, &params),
+                "settings-change" => settings_change(&params),
                 _ => build(&entry, params, None, 0),
             }
         }
@@ -1405,6 +1406,7 @@ mod guest {
         for (key, _) in panel::DETAILS {
             data.push(text(format!("/details/{key}"), ""));
         }
+        data.extend(settings_data(&stored_settings()?));
         ui::set_data(PANEL, &data)?;
         Ok(rows.len())
     }
@@ -1491,11 +1493,40 @@ mod guest {
         Ok(format!("{}: cell {}-{} left out", panel::short_name(&name), cell[0], cell[1]))
     }
 
+    fn stored_settings() -> Result<Value, PluginError> {
+        let stored = host("storage.get", json!({})).map_err(invalid_in("panel"))?;
+        Ok(panel::settings(&stored["document"]["settings"]))
+    }
+
+    fn settings_data(s: &Value) -> Vec<Datum> {
+        panel::SETTINGS.iter().map(|(key, _, kind, _, _)| Datum {
+            path: format!("/settings/{key}"),
+            value: if *kind == "toggle" { UiValue::Flag(s[key].as_bool().unwrap_or(false)) } else { UiValue::Text(st(&s[key])) },
+        }).collect()
+    }
+
+    /// A setting changed in the Settings tab: kept in the design.
+    fn settings_change(event: &Value) -> Result<String, PluginError> {
+        let invalid = invalid_in("settings");
+        let key = event["path"].as_str().and_then(|p| p.strip_prefix("/settings/")).unwrap_or_default();
+        let (_, _, kind, choices, _) = panel::SETTINGS.iter().find(|s| s.0 == key)
+            .ok_or_else(|| invalid(format!("no setting {key}")))?;
+        let v = &event["value"];
+        let value = match *kind {
+            "toggle" => v["flag"].as_bool().map(Value::Bool),
+            _ => v["text"].as_str().filter(|t| choices.contains(t)).map(|t| json!(t)),
+        }.ok_or_else(|| invalid(format!("{key}: {v}")))?;
+        host("storage.patch", json!({"patch": {"settings": {key: value.clone()}}})).map_err(&invalid)?;
+        ui::set_data(PANEL, &settings_data(&stored_settings()?))?;
+        Ok(json!({key: value}).to_string())
+    }
+
     /// A Quick button: its part, beside everything in the design (to the right, 10 mm apart).
     fn quick(entry: &str) -> Result<String, PluginError> {
         let invalid = invalid_in("quick");
-        let (_, _, what, mut params) = panel::presets().into_iter().find(|p| p.0 == entry)
+        let (_, _, what, preset) = panel::presets().into_iter().find(|p| p.0 == entry)
             .ok_or_else(|| invalid(format!("unknown entry `{entry}`")))?;
+        let mut params = panel::with_settings(what, &preset, &stored_settings()?);
         let m = host("inspect.measure", json!({})).map_err(&invalid)?;
         let right = m["bodies"].as_array().into_iter().flatten()
             .filter_map(|b| b["bbox"]["max"][0].as_f64()).fold(f64::NEG_INFINITY, f64::max);

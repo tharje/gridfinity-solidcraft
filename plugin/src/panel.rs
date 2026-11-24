@@ -105,6 +105,39 @@ pub fn details(row: &Row, item: &Value) -> Vec<(&'static str, String)> {
     ]
 }
 
+/// The Settings tab: key, label, kind, choices and default. They apply to the Quick parts.
+pub const SETTINGS: [(&str, &str, &str, &[&str], &str); 4] = [
+    ("magnets", "Magnet holes", "toggle", &[], "false"),
+    ("screws", "Screw holes", "toggle", &[], "false"),
+    ("lip", "Stacking lip on bins", "toggle", &[], "true"),
+    ("inside", "Bins", "choice", &["Hollow", "Eco (thin walls, hollow feet)"], "Hollow"),
+];
+
+/// The settings stored in the design (`document.settings`), with defaults for the rest.
+pub fn settings(stored: &Value) -> Value {
+    let mut out = json!({});
+    for (key, _, kind, _, default) in SETTINGS {
+        let v = stored.get(key).cloned().filter(|v| if kind == "toggle" { v.is_boolean() } else { v.is_string() });
+        out[key] = v.unwrap_or_else(|| if kind == "toggle" { json!(default == "true") } else { json!(default) });
+    }
+    out
+}
+
+/// A Quick part's settings with the Settings tab's: holes on every part, the lip and the
+/// inside on bins (an eco preset stays eco).
+pub fn with_settings(what: &str, preset: &Value, s: &Value) -> Value {
+    let mut p = preset.clone();
+    p["holes_magnet"] = s["magnets"].clone();
+    p["holes_screw"] = s["screws"].clone();
+    if what == "bin" {
+        p["stacking_lip"] = s["lip"].clone();
+        if p.get("inside").is_none() {
+            p["inside"] = s["inside"].clone();
+        }
+    }
+    p
+}
+
 /// The Quick tab's buttons: entry, label, the plugin entry it runs and its settings.
 pub fn presets() -> Vec<(&'static str, &'static str, &'static str, Value)> {
     vec![
@@ -121,7 +154,7 @@ pub fn presets() -> Vec<(&'static str, &'static str, &'static str, Value)> {
 pub fn entries() -> Vec<(&'static str, &'static str)> {
     let mut v = vec![("panel", "read"), ("panel-refresh", "read"), ("panel-select", "read")];
     v.extend(presets().into_iter().map(|p| (p.0, "edit")));
-    v.extend([("layout-remove", "edit"), ("layout-restore", "edit")]);
+    v.extend([("layout-remove", "edit"), ("layout-restore", "edit"), ("settings-change", "edit")]);
     v
 }
 
@@ -132,7 +165,7 @@ const LAYOUT: usize = 8 + 5;
 pub fn declarations() -> Value {
     let col = |k: &str, l: &str| json!({"key": k, "label": l, "unit": null});
     let mut nodes = vec![
-        json!({"widget": {"tabs": [{"label": "Parts", "child": 1}, {"label": "Quick", "child": 6}, {"label": "Layout", "child": LAYOUT}]}}),
+        json!({"widget": {"tabs": [{"label": "Parts", "child": 1}, {"label": "Quick", "child": 6}, {"label": "Layout", "child": LAYOUT}, {"label": "Settings", "child": LAYOUT + 3}]}}),
         // the table, and beside it the settings of the row clicked
         json!({"widget": {"split": {"vertical": false, "first": 5, "second": 4}}}),
         json!({"widget": {"toolbar": [{"label": "Refresh", "icon": null, "entry": "panel-refresh"}]}}),
@@ -159,6 +192,11 @@ pub fn declarations() -> Value {
         {"key": "restore", "label": "Restore all cells", "kind": "selection", "choices": [], "on_change": "layout-restore"},
         {"key": "status", "label": "Result", "kind": "text", "choices": [], "on_change": null},
     ]}}}));
+    let n = nodes.len();
+    nodes.push(json!({"widget": {"group": [n + 1, n + 2]}}));
+    nodes.push(json!({"widget": {"text": "For the parts the Quick tab makes, kept in this design."}}));
+    nodes.push(json!({"widget": {"form": {"bind": "/settings", "fields": SETTINGS.iter().map(|(k, l, kind, choices, _)|
+        json!({"key": k, "label": l, "kind": kind, "choices": choices, "on_change": "settings-change"})).collect::<Vec<_>>()}}}));
     json!({"ui_version": 1, "panels": [{"id": "parts", "title": "Gridfinity", "zones": ["bottom", "right"],
         "layout": {"root": 0, "nodes": nodes}}], "workspaces": []})
 }
@@ -189,6 +227,17 @@ mod tests {
         assert_eq!(d.iter().find(|(k, _)| *k == "inside").unwrap().1, "Eco (thin walls, hollow feet)");
         assert_eq!(d.iter().find(|(k, _)| *k == "compartments").unwrap().1, "1 x 1");
         assert_eq!(details(&r[0], &items["Base"]).iter().find(|(k, _)| *k == "inside").unwrap().1, "");
+    }
+
+    #[test]
+    fn quick_parts_take_the_settings() {
+        let s = settings(&json!({"magnets": true, "inside": "Eco (thin walls, hollow feet)", "lip": "no"}));
+        assert_eq!(s, json!({"magnets": true, "screws": false, "lip": true, "inside": "Eco (thin walls, hollow feet)"}));
+        let (_, _, what, preset) = presets().into_iter().find(|p| p.0 == "quick-bin-1x1").unwrap();
+        let p = with_settings(what, &preset, &s);
+        assert_eq!((p["holes_magnet"].as_bool(), p["inside"].as_str()), (Some(true), Some("Eco (thin walls, hollow feet)")));
+        let plate = with_settings("baseplate", &json!({"width": 4}), &s);
+        assert!(plate.get("inside").is_none() && plate["holes_magnet"] == true);
     }
 
     /// plugin.json's panel and entries are the ones made here.
