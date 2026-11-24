@@ -168,6 +168,9 @@ pub fn plan(o: &DrawerOptions) -> Result<DrawerPlan, String> {
 
 /// How far the filler beside a notch stays from the floor's edge: as the plate does from the walls.
 pub const FLOOR_FILL_CLEARANCE: f64 = 0.25;
+/// How much room short of the clearance a cell or half cell beside a notch may be. A cell is kept
+/// and its edge cut back to the clearance; a half cell's pocket is that much short at the edge.
+pub const SHORT: f64 = 0.3;
 
 /// Commands a plan may have: a drawer is a long job, which SolidCraft allows 1,048,576 host calls,
 /// and the plugin also makes a progress and a cancel check every 16 commands.
@@ -219,8 +222,71 @@ pub fn pieces(o: &DrawerOptions, pl: &DrawerPlan) -> Vec<Piece> {
     }
     if !o.leave_out.is_empty() {
         add_left_out(o, pl, &mut v, &cx0, &cy0);
+        add_trims(o, pl, &mut v, &cx0, &cy0);
     }
     v
+}
+
+/// On a floor that isn't a rectangle: a kept cell beside a notch that comes closer to the floor's
+/// edge than the clearance (up to SHORT closer is kept, see `cells_off_floor`) is cut back to it.
+fn add_trims(o: &DrawerOptions, pl: &DrawerPlan, v: &mut [Piece], cx0: &[u32], cy0: &[u32]) {
+    if o.outline.is_empty() {
+        return;
+    }
+    let [ax, ay] = &pl.axes;
+    let [px, py] = o.pitch;
+    let kx = ax.pieces.len();
+    let clearance = FLOOR_FILL_CLEARANCE;
+    for j in 0..ay.pieces.len() {
+        for i in 0..kx {
+            let idx = j * kx + i;
+            for lc in 0..ax.pieces[i] {
+                for lr in 0..ay.pieces[j] {
+                    let (c, r) = (cx0[i] + lc + 1, cy0[j] + lr + 1);
+                    if o.leave_out.contains(&[c, r]) {
+                        continue;
+                    }
+                    let x = v[idx].cells.corner[0] + px * lc as f64;
+                    let y = v[idx].cells.corner[1] + py * lr as f64;
+                    let cell = [x, y, x + px, y + py];
+                    for (dx, dy) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)] {
+                        let (nc, nr) = (c as i64 + dx, r as i64 + dy);
+                        if nc < 1 || nr < 1 || !o.leave_out.contains(&[nc as u32, nr as u32]) {
+                            continue;
+                        }
+                        // the cell with that side moved out by `e`, the others a hair in
+                        let moved = |e: f64| {
+                            let h = 0.01;
+                            let mut t = [cell[0] + h, cell[1] + h, cell[2] - h, cell[3] - h];
+                            match (dx, dy) {
+                                (-1, _) => t[0] = cell[0] - e,
+                                (1, _) => t[2] = cell[2] + e,
+                                (_, -1) => t[1] = cell[1] - e,
+                                _ => t[3] = cell[3] + e,
+                            }
+                            on_floor(t, &o.outline)
+                        };
+                        if moved(clearance) {
+                            continue;
+                        }
+                        let (mut lo, mut hi) = (-SHORT - 0.01, clearance);
+                        for _ in 0..24 {
+                            let mid = (lo + hi) / 2.0;
+                            if moved(mid) { lo = mid } else { hi = mid }
+                        }
+                        let back = clearance - lo;
+                        let cut = match (dx, dy) {
+                            (-1, _) => [cell[0] - 1.0, cell[1], cell[0] + back, cell[3]],
+                            (1, _) => [cell[2] - back, cell[1], cell[2] + 1.0, cell[3]],
+                            (_, -1) => [cell[0], cell[1] - 1.0, cell[2], cell[1] + back],
+                            _ => [cell[0], cell[3] - back, cell[2], cell[3] + 1.0],
+                        };
+                        v[idx].cuts.push(cut);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The cuts for the drawer's cells left out. A cell's own piece cuts it out, past it where there
@@ -318,8 +384,9 @@ pub fn cells_off_floor(o: &DrawerOptions, outline: &[[[f64; 2]; 2]], clearance: 
             for lr in 0..p.cells.ny {
                 let x = p.cells.corner[0] + o.pitch[0] * lc as f64;
                 let y = p.cells.corner[1] + o.pitch[1] * lr as f64;
-                // a cell that just fits (to a hundredth of a mm) is on the floor
-                let c = clearance - 0.01;
+                // a cell that comes up to SHORT short of the clearance is kept: its edge is cut back
+                // (`add_trims`)
+                let c = clearance - SHORT;
                 if !on_floor([x - c, y - c, x + o.pitch[0] + c, y + o.pitch[1] + c], outline) {
                     out.push([cx0[i] + lc + 1, cy0[j] + lr + 1]);
                 }
@@ -429,9 +496,8 @@ pub fn floor_fill(o: &DrawerOptions, pl: &DrawerPlan, clearance: f64) -> Vec<Str
             if depth < 1.0 {
                 continue;
             }
-            // a half cell may come up to 0.3 mm short at the floor's edge (the clearance, so the
-            // row under a notch that just misses a cell gets two)
-            let k = if half { ((depth + 0.3) / HALF_PITCH).floor() as u32 } else { 0 };
+            // a half cell may come up SHORT short at the floor's edge
+            let k = if half { ((depth + SHORT) / HALF_PITCH).floor() as u32 } else { 0 };
             let half_cells = (k > 0).then(|| match (dx, dy) {
                 (-1, _) => Block { corner: [rc[0], rc[1]], nx: k, ny: 1, pitch: [HALF_PITCH, py] },
                 (1, _) => Block { corner: [rc[2] - HALF_PITCH * k as f64, rc[1]], nx: k, ny: 1, pitch: [HALF_PITCH, py] },

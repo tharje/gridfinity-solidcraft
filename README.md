@@ -141,7 +141,8 @@ one undo step, editable afterwards, and they keep working without the plugin.
   also fill in yourself), and a piece with no cells left isn't made. Beside the cells kept, the
   floor left over in a cell left out is filled up to 0.25 mm from its edge, as the plate's own
   filler is: with half cells where 21 mm or more fits (42 mm grid, Leftover space Half cells), the
-  rest solid. The floor's outline is kept with the plate's settings (`floor_outline`).
+  rest solid. A cell (or half cell) up to 0.3 mm short of that is kept, and the plate's edge there
+  is cut back to 0.25 mm from the floor's: two half cells never stand where a whole cell fits. The floor's outline is kept with the plate's settings (`floor_outline`).
 
   ![A drawer plate on a U-shaped floor](docs/images/drawer-u-floor.png)
 
