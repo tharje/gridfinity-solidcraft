@@ -13,6 +13,9 @@ one undo step, editable afterwards, and they keep working without the plugin.
 
 - **bin**: width × depth cells, height in units (7 mm), Gridfinity feet, 0.95 mm walls,
   stacking lip, optional magnet holes (6.5 × 2.4 mm, or the size you set), screw holes (3 mm) and dividers.
+  The dividers are spaced so the compartments, and their label tabs, look the same width from
+  above: the stacking lip reaches in over the side walls, so the outer compartments are a little
+  wider at the floor (#14).
   Full grid (42 mm cells) or **half grid** (21 mm cells: four feet fit one baseplate pocket; magnet
   holes sit on the same spots as a full-grid baseplate's magnets), or a **custom cell size**.
 - **Custom grid** (`grid`: "Custom (sizes below)"): your own cell size from 15 to 100 mm, set

@@ -165,6 +165,23 @@ impl BinOptions {
         (flush(self.has_scoop()), flush(self.label && self.sticker))
     }
 
+    /// The inside along X as seen from above: its left side and its width. The stacking lip
+    /// reaches in over the side walls, so the compartments are spaced across what it leaves
+    /// open, and their label tabs look the same width (the outer ones are wider underneath).
+    pub(crate) fn opening_x(&self) -> (f64, f64) {
+        let (cx, _, w, _) = self.outline();
+        let side = if self.lip && !self.solid { self.wall().max(LIP.0 + LIP.2) } else { self.wall() };
+        (cx - w / 2.0 + side, w - 2.0 * side)
+    }
+
+    /// The middle of divider `k` (from 1) across X: the compartments between them are all as
+    /// wide, the dividers' own thickness left out.
+    pub(crate) fn divider_x(&self, k: u32) -> f64 {
+        let (x0, ow) = self.opening_x();
+        let each = (ow - self.div_x as f64 * DIVIDER) / (self.div_x + 1) as f64;
+        x0 + each * k as f64 + DIVIDER * (k as f64 - 0.5)
+    }
+
     /// The inside along Y, past the front and back walls: its front and its depth.
     fn inside_y(&self) -> (f64, f64) {
         let (_, cy, _, d) = self.outline();
@@ -231,10 +248,7 @@ pub(crate) fn text_width(s: &str, h: f64) -> f64 {
 /// Where label text goes: for each compartment, back row first and left to right, the middle
 /// of the part of its tab that can be seen from above (x, y) and that part's width and depth.
 pub fn label_areas(o: &BinOptions) -> Vec<(f64, f64, f64, f64)> {
-    let (cx, _, w, _) = o.outline();
-    let wall = o.wall();
-    let iw = w - 2.0 * wall;
-    let x0 = cx - w / 2.0 + wall;
+    let (x0, ow) = o.opening_x();
     let (y0, id) = o.inside_y();
     let back_wall = o.front_back_walls().1;
     let rows = o.div_y + 1;
@@ -251,8 +265,8 @@ pub fn label_areas(o: &BinOptions) -> Vec<(f64, f64, f64, f64)> {
         let thin = if o.flush { o.text_height } else { 0.0 };
         let (front, back) = (hi - label + LABEL_MARGIN_Y + thin, hi - hidden - LABEL_MARGIN_Y);
         for j in 0..cols {
-            let lo_x = x0 + iw * j as f64 / cols as f64 + if j > 0 { DIVIDER / 2.0 } else { 0.0 };
-            let hi_x = x0 + iw * (j + 1) as f64 / cols as f64 - if j + 1 < cols { DIVIDER / 2.0 } else { 0.0 };
+            let lo_x = if j > 0 { o.divider_x(j) + DIVIDER / 2.0 } else { x0 };
+            let hi_x = if j + 1 < cols { o.divider_x(j + 1) - DIVIDER / 2.0 } else { x0 + ow };
             v.push(((lo_x + hi_x) / 2.0, (front + back) / 2.0, hi_x - lo_x - 2.0 * LABEL_MARGIN, back - front));
         }
     }
@@ -581,7 +595,7 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
         // Dividers from the floor to just under the lip support, after the scoops: they cut
         // across them.
         for k in 1..=o.div_x {
-            let x = x0 + iw * k as f64 / (o.div_x + 1) as f64 - DIVIDER / 2.0;
+            let x = o.divider_x(k) - DIVIDER / 2.0;
             out.push(cmd("solid.box", json!({"corner": [r4(x), r4(y0), floor], "length": DIVIDER, "width": r4(id),
                 "height": r4(z - floor), "operation": "join", "targets": [b]})));
             keep.push([x, y0 - 5.0, x + DIVIDER, y0 + id + 5.0]);
@@ -909,11 +923,31 @@ mod tests {
         let feet3 = c.iter().position(|v| v["params"]["name"] == "Bin Feet3").unwrap();
         assert_eq!(c[feet3 + 1]["params"]["p0"], json!([10.25, 0.25]));
         assert_eq!(body_pattern(&c), Some((2, 1)));
-        // label tabs span the whole inside
+        // label text spans what the lip leaves open of the whole inside
         let l = BinOptions { label: true, ..o.clone() };
         let a = label_areas(&l);
         assert_eq!(a.len(), 1);
-        assert!((a[0].0 - 49.0).abs() < 1e-9 && (a[0].2 - (97.5 - 1.9 - 2.0)).abs() < 1e-9);
+        assert!((a[0].0 - 49.0).abs() < 1e-9 && (a[0].2 - (97.5 - 2.0 * 2.6 - 2.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn compartments_look_the_same_width_under_the_lip() {
+        // seen from above, between the lip and the dividers, every compartment (and its label
+        // tab) is as wide as the others; without a lip, between the walls
+        for lip in [true, false] {
+            let o = BinOptions { div_x: 2, label: true, lip, ..bin(3, 1, 6) };
+            let a = label_areas(&o);
+            assert_eq!(a.len(), 3);
+            assert!(a.iter().all(|t| (t.2 - a[1].2).abs() < 1e-9), "{lip}: {a:?}");
+            let (x0, ow) = o.opening_x();
+            assert!((x0 - if lip { 2.6 } else { 0.95 } - 0.25).abs() < 1e-9 && (ow - (125.5 - 2.0 * (x0 - 0.25))).abs() < 1e-9);
+            let c = bin_commands(&o);
+            let xs: Vec<f64> = c.iter().filter(|v| v["command"] == "solid.box" && v["params"]["length"] == json!(DIVIDER))
+                .map(|v| v["params"]["corner"][0].as_f64().unwrap() + DIVIDER / 2.0).collect();
+            assert_eq!(xs.len(), 2);
+            assert!((xs[0] - o.divider_x(1)).abs() < 1e-3 && (xs[1] - o.divider_x(2)).abs() < 1e-3);
+            assert!(((xs[0] - x0) - (x0 + ow - xs[1])).abs() < 1e-3 && ((xs[1] - xs[0]) - (xs[0] - x0) - DIVIDER / 2.0).abs() < 1e-3);
+        }
     }
 
     #[test]
