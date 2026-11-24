@@ -38,6 +38,8 @@ const SCOOP_STEPS: u32 = 8;
 const HOLE_OFFSET: f64 = 13.0;
 pub(crate) const MAGNET_D: f64 = 6.5;
 pub(crate) const MAGNET_DEPTH: f64 = 2.4;
+/// The standard magnet hole: diameter and depth (mm), for 6 x 2 mm magnets.
+pub(crate) const MAGNET: [f64; 2] = [MAGNET_D, MAGNET_DEPTH];
 const SCREW_D: f64 = 3.0;
 const SCREW_DEPTH: f64 = 6.0;
 /// Baseplate screw holes, at the magnet spots: M3 clearance through the floor, countersunk 90°
@@ -60,6 +62,8 @@ pub struct BinOptions {
     /// bin whose height then changes in Parameters keeps them as they were.
     pub sized_units: u32,
     pub magnets: bool,
+    /// Magnet hole diameter and depth (mm).
+    pub magnet: [f64; 2],
     pub screws: bool,
     pub div_x: u32,
     pub div_y: u32,
@@ -200,6 +204,8 @@ pub struct BaseplateOptions {
     /// Frame only: the pockets go right through (no floor, so no magnet or screw holes).
     pub open: bool,
     pub magnets: bool,
+    /// Magnet hole diameter and depth (mm).
+    pub magnet: [f64; 2],
     pub screws: bool,
     /// Filler beside the pockets: left, right, front, back (mm).
     pub filler: [f64; 4],
@@ -609,8 +615,8 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
     let same_holes = pitch[0] != HALF_PITCH && pitch[1] != HALF_PITCH;
     let holes = |out: &mut Vec<Value>, target: &str, blk: Block| {
         if o.magnets {
-            sketch(out, 0.0, &n("Magnets"), block_holes(blk, grid, MAGNET_D));
-            out.push(extrude(&n("Magnets"), MAGNET_DEPTH, Op::Cut(target), None, "positive"));
+            sketch(out, 0.0, &n("Magnets"), block_holes(blk, grid, o.magnet[0]));
+            out.push(extrude(&n("Magnets"), o.magnet[1], Op::Cut(target), None, "positive"));
         }
         if o.screws {
             sketch(out, 0.0, &n("Screws"), block_holes(blk, grid, SCREW_D));
@@ -655,7 +661,7 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
         // bottom is raised over them.
         let pocket = n("Pocket");
         let s = ECO_WALL;
-        let z0 = s + if o.magnets { MAGNET_DEPTH } else { 0.0 };
+        let z0 = s + if o.magnets { o.magnet[1] } else { 0.0 };
         // where the inside starts to lean out: the same wall thickness across the chamfer
         let z1 = a + m + s * (std::f64::consts::PI / 8.0).tan();
         let size = |z: f64| {
@@ -779,9 +785,10 @@ pub fn baseplate_piece(o: &BaseplateOptions) -> crate::plate::Piece {
     crate::plate::Piece {
         name: o.name.clone(),
         cells: Block { corner, nx: o.nx, ny: o.ny, pitch: o.pitch },
-        h: crate::plate::plate_height(o.open, magnets, screws),
+        h: crate::plate::plate_height(o.open, magnets, screws, o.magnet[1]),
         open: o.open,
         magnets,
+        magnet: o.magnet,
         screws,
         grid_origin: corner,
         filler: o.filler,
@@ -863,7 +870,7 @@ mod tests {
     use super::*;
 
     fn bin(nx: u32, ny: u32, units: u32) -> BinOptions {
-        BinOptions { nx, ny, pitch: [PITCH; 2], units, sized_units: units, magnets: true, screws: false, div_x: 1, div_y: 0, lip: true, solid: false, eco: false, fill: 0.0, scoop: 0.0, scoop_auto: false, label: false, label_w: LABEL_W, sticker: false,
+        BinOptions { nx, ny, pitch: [PITCH; 2], units, sized_units: units, magnets: true, magnet: MAGNET, screws: false, div_x: 1, div_y: 0, lip: true, solid: false, eco: false, fill: 0.0, scoop: 0.0, scoop_auto: false, label: false, label_w: LABEL_W, sticker: false,
             label_text: vec![], text_size: 0.0, text_height: 0.4, flush: false, font: String::new(), filler: [0.0; 4], wall: 0.0,
                      origin: [0.0, 0.0], name: "Bin".into() }
     }
@@ -1088,7 +1095,7 @@ mod tests {
         assert_eq!(circles(&c), vec![(8.0, 12.5), (32.0, 12.5)]);
         // outside 39.5 x 24.5, feet the same at the top
         assert!(c.iter().any(|v| v["command"] == "sketch.rectangle.rounded" && v["params"]["p1"] == json!([39.75, 24.75])));
-        let p = BaseplateOptions { nx: 1, ny: 1, pitch: [40.0, 25.0], open: false, magnets: true, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into(), leave_out: vec![] };
+        let p = BaseplateOptions { nx: 1, ny: 1, pitch: [40.0, 25.0], open: false, magnets: true, magnet: MAGNET, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into(), leave_out: vec![] };
         let pc = baseplate_commands(&p);
         let magnets = |c: &[Value]| -> Vec<Value> { c.iter().filter(|v| v["params"]["diameter"] == json!(MAGNET_D)).cloned().collect() };
         assert_eq!(circles(&magnets(&pc)), circles(&c));
@@ -1100,7 +1107,7 @@ mod tests {
 
     #[test]
     fn baseplate_is_one_cell_repeated_with_rounded_corners() {
-        let c = baseplate_commands(&BaseplateOptions { nx: 3, ny: 2, pitch: [PITCH; 2], open: false, magnets: false, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into(), leave_out: vec![] });
+        let c = baseplate_commands(&BaseplateOptions { nx: 3, ny: 2, pitch: [PITCH; 2], open: false, magnets: false, magnet: MAGNET, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into(), leave_out: vec![] });
         let pockets = c.iter().filter(|v| v["command"] == "sketch.rectangle.rounded" && v["params"]["radius"] == json!(3.95)).count();
         assert_eq!(pockets, 1);
         // a row of 3, then 2 rows
@@ -1123,7 +1130,7 @@ mod tests {
         o.div_x = 10;
         o.div_y = 10;
         assert!(bin_commands(&o).len() < 100);
-        let p = BaseplateOptions { nx: 24, ny: 24, pitch: [HALF_PITCH; 2], open: false, magnets: true, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "P".into(), leave_out: vec![] };
+        let p = BaseplateOptions { nx: 24, ny: 24, pitch: [HALF_PITCH; 2], open: false, magnets: true, magnet: MAGNET, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "P".into(), leave_out: vec![] };
         assert!(baseplate_commands(&p).len() < 100);
     }
 }

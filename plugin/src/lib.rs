@@ -192,6 +192,7 @@ pub fn parse_bin(params: &Value) -> Result<BinOptions, String> {
         units,
         sized_units: units,
         magnets: get_b(p, &["holes_magnet", "magnets"], false)?,
+        magnet: get_magnet(p)?,
         screws: get_b(p, &["holes_screw", "screws"], false)?,
         div_x: get_u(p, "dividers_x", 0, 0, MAX_DIVIDERS)?,
         div_y: get_u(p, "dividers_y", 0, 0, MAX_DIVIDERS)?,
@@ -333,6 +334,13 @@ fn get_plate_holes(p: &Map<String, Value>, open: bool) -> Result<(bool, bool), S
     Ok((magnets, screws))
 }
 
+/// The magnet holes' diameter and depth: 6.5 x 2.4 mm for 6 x 2 mm magnets unless set, for
+/// magnets that come a little bigger or smaller. At most 8 mm across, so a bin's foot keeps a
+/// wall beside the hole.
+fn get_magnet(p: &Map<String, Value>) -> Result<[f64; 2], String> {
+    Ok([get_mm(p, "magnet_diameter", geometry::MAGNET[0], 3.5, 8.0)?, get_mm(p, "magnet_depth", geometry::MAGNET[1], 1.0, 4.0)?])
+}
+
 /// The label tab: None, For sticker (no text; the back wall is made flush with the stacking lip)
 /// or Printed text. true and false (as before 1.5) are a tab with or without text, and none.
 /// Returns whether there is a tab, whether it is for a sticker, and whether one was chosen by name.
@@ -390,6 +398,7 @@ pub fn parse_baseplate(params: &Value) -> Result<BaseplateOptions, String> {
         pitch,
         open,
         magnets,
+        magnet: get_magnet(p)?,
         screws,
         filler: [
             get_mm(p, "filler_left", 0.0, 0.0, MAX_FILLER)?,
@@ -614,6 +623,7 @@ pub fn parse_drawer(params: &Value) -> Result<DrawerOptions, String> {
         half_cells: get_leftover(p)?,
         open,
         magnets,
+        magnet: get_magnet(p)?,
         screws,
         origin: get_origin(p)?,
         // in a picked drawer (or one made again from its outline) the pieces lie together, as
@@ -954,6 +964,11 @@ pub fn apply_edits(params: &Value, edits: &Value) -> Value {
     }
     for key in ["inside", "inside_label_text_style"] {
         if let Some(v) = edits.get(key).and_then(|v| v.as_str()).filter(|&v| v != KEEP) {
+            p[key] = json!(v);
+        }
+    }
+    for key in ["magnet_diameter", "magnet_depth"] {
+        if let Some(v) = edits.get(key).and_then(|v| v.as_f64()).filter(|&v| v > 0.0) {
             p[key] = json!(v);
         }
     }
@@ -2163,6 +2178,42 @@ mod tests {
         assert!(plan("bin", &json!({"inside": solid, "height": 6, "inside_fill_height": 5})).unwrap_err().contains("Fill height"));
         assert!(plan("bin", &json!({"inside": solid, "height": 6, "inside_fill_height": top})).is_err());
         assert!(plan("bin", &json!({"inside": solid, "height": 6, "inside_fill_height": top - 1.0})).is_ok());
+    }
+
+    #[test]
+    fn magnet_holes_can_be_sized_for_the_magnets() {
+        let circles = |c: &[Value]| -> Vec<f64> {
+            geometry::expand(c).into_iter().filter(|v| v["command"] == "sketch.circle.center")
+                .filter_map(|v| v["params"]["diameter"].as_f64()).collect()
+        };
+        let depths = |c: &[Value]| -> Vec<f64> {
+            c.iter().filter(|v| v["command"] == "solid.extrude" && v["params"]["sketch"].as_str().is_some_and(|s| s.ends_with("Magnets")))
+                .filter_map(|v| v["params"]["distance"].as_f64()).collect()
+        };
+        // unset: the standard 6.5 x 2.4 mm
+        assert_eq!(parse_bin(&json!({"holes_magnet": true})).unwrap().magnet, [6.5, 2.4]);
+        for entry in ["bin", "baseplate", "drawer"] {
+            let mut p = json!({"holes_magnet": true, "magnet_diameter": 6.8, "magnet_depth": 2.6});
+            if entry == "drawer" {
+                p["drawer_width"] = json!(100);
+                p["drawer_depth"] = json!(100);
+            }
+            let (_, c) = plan(entry, &p).unwrap();
+            assert!(circles(&c).contains(&6.8) && !circles(&c).contains(&6.5), "{entry}");
+            assert!(!depths(&c).is_empty() && depths(&c).iter().all(|&d| d == 2.6), "{entry}");
+            assert!(plan(entry, &json!({"holes_magnet": true, "magnet_diameter": 9})).unwrap_err().contains("magnet_diameter"));
+            assert!(plan(entry, &json!({"holes_magnet": true, "magnet_depth": 0.5})).unwrap_err().contains("magnet_depth"));
+        }
+        // a deeper hole makes the base plate's floor thicker by as much
+        let h = |d: f64| parse_baseplate(&json!({"holes_magnet": true, "magnet_depth": d})).map(|o| geometry::baseplate_piece(&o).h).unwrap();
+        assert!((h(3.4) - h(2.4) - 1.0).abs() < 1e-9);
+        // eco bins raise the hollow feet over a deeper hole too
+        assert!(plan("bin", &json!({"inside": "Eco", "holes_magnet": true, "magnet_depth": 4})).is_ok());
+        // edit: 0 keeps, a size changes it
+        let stored = json!({"holes_magnet": true, "magnet_diameter": 6.8});
+        assert_eq!(apply_edits(&stored, &json!({"magnet_diameter": 0, "magnet_depth": 0})), stored);
+        let e = apply_edits(&stored, &json!({"magnet_diameter": 6.2, "magnet_depth": 2.2}));
+        assert_eq!((e["magnet_diameter"].as_f64(), e["magnet_depth"].as_f64()), (Some(6.2), Some(2.2)));
     }
 
     #[test]

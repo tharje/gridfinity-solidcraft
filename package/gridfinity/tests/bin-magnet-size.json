@@ -1,0 +1,20 @@
+{
+  "entry": "bin",
+  "params": {
+    "width": 2,
+    "depth": 1,
+    "height": 3,
+    "holes_magnet": true,
+    "magnet_diameter": 6.2,
+    "magnet_depth": 2.2
+  },
+  "expect": {
+    "model": {
+      "body_count": 1,
+      "total": {
+        "volume_mm3": 23327.852
+      }
+    },
+    "tolerance": 0.0001
+  }
+}

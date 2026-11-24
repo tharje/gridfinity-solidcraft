@@ -36,6 +36,8 @@ pub struct DrawerOptions {
     pub half_cells: bool,
     pub open: bool,
     pub magnets: bool,
+    /// Magnet hole diameter and depth (mm).
+    pub magnet: [f64; 2],
     pub screws: bool,
     pub origin: [f64; 2],
     /// Space between the pieces in the design: LAYOUT_GAP, or 0 in a picked drawer.
@@ -182,7 +184,7 @@ pub fn pieces(o: &DrawerOptions, pl: &DrawerPlan) -> Vec<Piece> {
     let [px, py] = o.pitch;
     let (kx, ky) = (ax.pieces.len(), ay.pieces.len());
     let (magnets, screws) = (o.magnets && !o.open, o.screws && !o.open);
-    let h = plate_height(o.open, magnets, screws);
+    let h = plate_height(o.open, magnets, screws, o.magnet[1]);
     let starts = |pieces: &[u32]| pieces.iter().scan(0u32, |acc, &k| { let s = *acc; *acc += k; Some(s) }).collect::<Vec<_>>();
     let (cx0, cy0) = (starts(&ax.pieces), starts(&ay.pieces));
     let name = |i: usize, j: usize| if kx * ky == 1 { o.name.clone() } else { format!("{} {}-{}", o.name, i + 1, j + 1) };
@@ -202,6 +204,7 @@ pub fn pieces(o: &DrawerOptions, pl: &DrawerPlan) -> Vec<Piece> {
                 h,
                 open: o.open,
                 magnets,
+                magnet: o.magnet,
                 screws,
                 // holes line up with the piece's own grid, which is the drawer's moved by the gap
                 grid_origin: [c[0] - px * cx0[i] as f64, c[1] - py * cy0[j] as f64],
@@ -801,12 +804,13 @@ pub fn drawer_commands(o: &DrawerOptions) -> Result<(DrawerPlan, Vec<Value>), St
 
 #[cfg(test)]
 mod tests {
+    use crate::geometry::MAGNET;
     use super::*;
     use crate::plate::{dovetail, CLEARANCE};
     use serde_json::Value;
 
     fn opts(drawer: [f64; 2], bed: [f64; 2]) -> DrawerOptions {
-        DrawerOptions { drawer, bed, pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false, open: false, magnets: false, screws: false,
+        DrawerOptions { drawer, bed, pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false, open: false, magnets: false, magnet: MAGNET, screws: false,
                         origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "Drawer".into(), piece: 0, leave_out: vec![], outline: vec![] }
     }
 
@@ -909,12 +913,12 @@ mod tests {
 #[cfg(test)]
 mod more_tests {
     use super::*;
-    use crate::geometry::{expand, PITCH};
+    use crate::geometry::{expand, MAGNET, PITCH};
 
     #[test]
     fn a_big_drawer_stays_under_the_call_limit() {
         let o = DrawerOptions { drawer: [600.0, 500.0], bed: [256.0, 256.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false,
-                                open: false, magnets: true, screws: true, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
+                                open: false, magnets: true, magnet: MAGNET, screws: true, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
         let (pl, c) = drawer_commands(&o).unwrap();
         assert_eq!((pl.axes[0].cells, pl.axes[1].cells), (14, 11));
         assert!(c.len() <= MAX_CALLS, "{} calls", c.len());
@@ -949,7 +953,7 @@ mod more_tests {
         assert_eq!((a.filler_low, a.filler_high), (6.0, 6.0));
         // the half cells are cut only into the pieces on that side
         let o = DrawerOptions { drawer: [400.0, 300.0], bed: [256.0, 256.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: true,
-                                open: false, magnets: false, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
+                                open: false, magnets: false, magnet: MAGNET, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
         let (_, c) = drawer_commands(&o).unwrap();
         let named = |end: &str| c.iter().filter(|v| v["command"] == "sketch.create" && v["params"]["name"].as_str().unwrap().contains(end)).count();
         // 400 x 300: 9 x 7 cells, 22 and 6 mm over: half cells along X only, on the right pieces
@@ -968,7 +972,7 @@ mod more_tests {
         let pts = [[0.0, 0.0], [300.0, 0.0], [300.0, 200.0], [200.0, 200.0], [200.0, 120.0], [100.0, 120.0], [100.0, 200.0], [0.0, 200.0]];
         let outline: Vec<[[f64; 2]; 2]> = (0..pts.len()).map(|k| [pts[k], pts[(k + 1) % pts.len()]]).collect();
         let o = DrawerOptions { drawer: [299.5, 199.5], bed: [256.0, 256.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false,
-                                open: false, magnets: false, screws: false, origin: [0.25, 0.25], gap: 0.0, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
+                                open: false, magnets: false, magnet: MAGNET, screws: false, origin: [0.25, 0.25], gap: 0.0, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
         let off = cells_off_floor(&o, &outline, 0.25).unwrap();
         // 7 x 4 cells from x 3.5 and y 15.5: columns 3 to 5 reach into the notch above y 120 (rows 3 and 4)
         assert_eq!(off, vec![[3, 3], [3, 4], [4, 3], [4, 4], [5, 3], [5, 4]]);
@@ -1000,7 +1004,7 @@ mod more_tests {
     #[test]
     fn many_pieces_fit_in_one_long_job() {
         let o = DrawerOptions { drawer: [1000.0, 1000.0], bed: [100.0, 100.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false,
-                                open: false, magnets: false, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
+                                open: false, magnets: false, magnet: MAGNET, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
         let (pl, c) = drawer_commands(&o).unwrap();
         assert_eq!(pl.axes[0].pieces.len() * pl.axes[1].pieces.len(), 169);
         assert!(c.len() <= MAX_CALLS, "{} calls", c.len());

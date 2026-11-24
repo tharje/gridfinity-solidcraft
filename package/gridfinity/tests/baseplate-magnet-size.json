@@ -1,0 +1,20 @@
+{
+  "entry": "baseplate",
+  "params": {
+    "width": 2,
+    "depth": 2,
+    "holes_magnet": true,
+    "holes_screw": true,
+    "magnet_diameter": 6.8,
+    "magnet_depth": 3
+  },
+  "expect": {
+    "model": {
+      "body_count": 1,
+      "total": {
+        "volume_mm3": 40361.405
+      }
+    },
+    "tolerance": 0.0001
+  }
+}

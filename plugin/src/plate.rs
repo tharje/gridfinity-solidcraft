@@ -9,7 +9,7 @@
 //! are the rows joined, once.
 
 use crate::geometry::{
-    block_holes, block_rrects, circle, cmd, extrude, pattern, r4, sketch, Block, Op, HALF_PITCH, MAGNET_D, MAGNET_DEPTH,
+    block_holes, block_rrects, circle, cmd, extrude, pattern, r4, sketch, Block, Op, HALF_PITCH,
     PITCH, PLATE_PROFILE, PLATE_R, PLATE_RIM, PLATE_SCREW_D, PLATE_SCREW_HEAD_D,
 };
 use serde_json::{json, Value};
@@ -47,16 +47,16 @@ pub fn lean(tab_h: f64) -> f64 {
 /// Height of a baseplate: an open frame is just the pocket profile high (the pockets end at its
 /// underside); a solid one keeps a floor, thicker with magnet or screw holes. With both, the
 /// countersink sits under the magnet hole with 0.6 mm between them for the magnet to rest on.
-pub fn plate_height(open: bool, magnets: bool, screws: bool) -> f64 {
+pub fn plate_height(open: bool, magnets: bool, screws: bool, magnet_depth: f64) -> f64 {
     let (a, m, c) = PLATE_PROFILE;
     let depth = a + m + c;
     if open {
         return depth - PLATE_RIM;
     }
     depth + match (magnets, screws) {
-        (true, true) => MAGNET_DEPTH + SCREW_SINK + 0.6,
+        (true, true) => magnet_depth + SCREW_SINK + 0.6,
         (false, false) => 0.35,
-        _ => MAGNET_DEPTH + 0.6,
+        _ => magnet_depth + 0.6,
     }
 }
 
@@ -122,6 +122,8 @@ pub struct Piece {
     /// Magnet holes and screw holes (in the same spots), and the corner of the grid they line
     /// up with.
     pub magnets: bool,
+    /// Magnet hole diameter and depth (mm).
+    pub magnet: [f64; 2],
     pub screws: bool,
     pub grid_origin: [f64; 2],
     /// Filler beside the cells: left, right, front, back (mm).
@@ -315,8 +317,8 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
     let rows: Vec<&str> = if ny > 1 { vec![b, "@created"] } else { vec![b] };
     let floor = h - (PLATE_PROFILE.0 + PLATE_PROFILE.1 + PLATE_PROFILE.2 - PLATE_RIM);
     if p.magnets && half {
-        sketch(out, floor, &n("Magnets"), block_holes(p.cells, p.grid_origin, MAGNET_D));
-        let mut e = extrude(&n("Magnets"), MAGNET_DEPTH, Op::Cut(b), None, "negative");
+        sketch(out, floor, &n("Magnets"), block_holes(p.cells, p.grid_origin, p.magnet[0]));
+        let mut e = extrude(&n("Magnets"), p.magnet[1], Op::Cut(b), None, "negative");
         e["params"]["targets"] = json!(rows);
         out.push(e);
     }
@@ -369,8 +371,8 @@ pub fn first_cell(out: &mut Vec<Value>, p: &Piece) {
     let half = px == crate::geometry::HALF_PITCH || py == crate::geometry::HALF_PITCH;
     let floor = h - (a + m + c - rim);
     if p.magnets && !half {
-        sketch(out, floor, &n("Magnets"), block_holes(one, p.grid_origin, MAGNET_D));
-        out.push(extrude(&n("Magnets"), MAGNET_DEPTH, Op::Cut(b), None, "negative"));
+        sketch(out, floor, &n("Magnets"), block_holes(one, p.grid_origin, p.magnet[0]));
+        out.push(extrude(&n("Magnets"), p.magnet[1], Op::Cut(b), None, "negative"));
     }
     if p.screws && !half {
         screw_holes(out, b, one, p.grid_origin, floor, json!([b]));
@@ -491,9 +493,10 @@ fn corners(out: &mut Vec<Value>, name: &str, body: &str, h: f64, list: &[(bool, 
 mod tests {
     use super::*;
     use crate::geometry::{baseplate_piece, BaseplateOptions};
+    use crate::geometry::{MAGNET, MAGNET_DEPTH};
 
     fn plate(magnets: bool, screws: bool, pitch: f64) -> Vec<Value> {
-        let o = BaseplateOptions { nx: 2, ny: 3, pitch: [pitch; 2], open: false, magnets, screws, filler: [0.0; 4],
+        let o = BaseplateOptions { nx: 2, ny: 3, pitch: [pitch; 2], open: false, magnets, magnet: MAGNET, screws, filler: [0.0; 4],
             half_cells: false, origin: [0.0, 0.0], name: "P".into(), leave_out: vec![] };
         let mut out = Vec::new();
         piece_commands(&mut out, &baseplate_piece(&o));
@@ -516,11 +519,11 @@ mod tests {
     #[test]
     fn a_floor_holds_the_countersink_and_the_magnet_above_it() {
         let depth = PLATE_PROFILE.0 + PLATE_PROFILE.1 + PLATE_PROFILE.2;
-        assert!((plate_height(false, false, true) - plate_height(false, true, false)).abs() < 1e-9);
-        let floor = plate_height(false, true, true) - depth + PLATE_RIM;
+        assert!((plate_height(false, false, true, MAGNET_DEPTH) - plate_height(false, true, false, MAGNET_DEPTH)).abs() < 1e-9);
+        let floor = plate_height(false, true, true, MAGNET_DEPTH) - depth + PLATE_RIM;
         // under the magnet hole: the countersink, then 0.6 mm for the magnet to rest on
         assert!((floor - MAGNET_DEPTH - SCREW_SINK - 0.65).abs() < 1e-9);
-        assert!((plate_height(true, false, true) - plate_height(true, false, false)).abs() < 1e-9);
+        assert!((plate_height(true, false, true, MAGNET_DEPTH) - plate_height(true, false, false, MAGNET_DEPTH)).abs() < 1e-9);
         assert!((SCREW_SINK - 1.7).abs() < 1e-9);
     }
 
