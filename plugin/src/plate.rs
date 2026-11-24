@@ -448,7 +448,7 @@ pub fn rest(outer: [f64; 4], inner: [f64; 4]) -> Vec<[f64; 4]> {
 
 /// Cut half-cell pockets, the same profile as a cell's, into `body` at `cells`. No magnet or
 /// screw holes: they sit on the 42 mm grid, outside these cells.
-fn half_pockets(out: &mut Vec<Value>, name: &str, body: &str, p: &Piece, cells: Block) {
+pub(crate) fn half_pockets(out: &mut Vec<Value>, name: &str, body: &str, p: &Piece, cells: Block) {
     let (a, m, c) = PLATE_PROFILE;
     let rim = PLATE_RIM;
     let (h, [sx, sy]) = (p.h, cells.pitch);

@@ -45,6 +45,9 @@ pub struct DrawerOptions {
     pub piece: u32,
     /// Cells left out, across the whole drawer: column and row from 1, from the front left.
     pub leave_out: Vec<[u32; 2]>,
+    /// The outline of a picked floor that isn't a rectangle, as segments seen from above (else
+    /// empty): where cells are left out, the floor beside the cells kept is filled up to it.
+    pub outline: Vec<[[f64; 2]; 2]>,
 }
 
 /// One axis of the plan: cells, filler before and after them, and the pieces.
@@ -162,6 +165,9 @@ pub fn plan(o: &DrawerOptions) -> Result<DrawerPlan, String> {
         ],
     })
 }
+
+/// How far the filler beside a notch stays from the floor's edge: as the plate does from the walls.
+pub const FLOOR_FILL_CLEARANCE: f64 = 0.25;
 
 /// Commands a plan may have: a drawer is a long job, which SolidCraft allows 1,048,576 host calls,
 /// and the plugin also makes a progress and a cancel check every 16 commands.
@@ -312,10 +318,9 @@ pub fn cells_off_floor(o: &DrawerOptions, outline: &[[[f64; 2]; 2]], clearance: 
             for lr in 0..p.cells.ny {
                 let x = p.cells.corner[0] + o.pitch[0] * lc as f64;
                 let y = p.cells.corner[1] + o.pitch[1] * lr as f64;
-                let r = [x - clearance, y - clearance, x + o.pitch[0] + clearance, y + o.pitch[1] + clearance];
-                let on = [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]].iter().all(|&q| inside(q, outline))
-                    && !outline.iter().any(|s| crosses(s, r));
-                if !on {
+                // a cell that just fits (to a hundredth of a mm) is on the floor
+                let c = clearance - 0.01;
+                if !on_floor([x - c, y - c, x + o.pitch[0] + c, y + o.pitch[1] + c], outline) {
                     out.push([cx0[i] + lc + 1, cy0[j] + lr + 1]);
                 }
             }
@@ -323,6 +328,152 @@ pub fn cells_off_floor(o: &DrawerOptions, outline: &[[[f64; 2]; 2]], clearance: 
     }
     out.sort();
     Ok(out)
+}
+
+/// Whether rectangle `r` ([x0, y0, x1, y1]) is wholly on the floor with this outline.
+fn on_floor(r: [f64; 4], outline: &[[[f64; 2]; 2]]) -> bool {
+    [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]].iter().all(|&q| inside(q, outline))
+        && !outline.iter().any(|s| crosses(s, r))
+}
+
+/// Filler on the floor beside a kept cell where the cell next to it is left out: a box joined to
+/// the kept cell's piece, with half cells in it where 21 mm or more fits (42 mm grid).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Strip {
+    /// [x0, y0, x1, y1]
+    pub rect: [f64; 4],
+    /// The piece it is joined to, by its index in `pieces`.
+    pub piece: usize,
+    pub half_cells: Option<Block>,
+}
+
+/// The strips for a drawer whose cells are left out because its floor isn't a rectangle: in each
+/// cell left out, beside each kept cell next to it, the floor up to `clearance` from its edge.
+/// Where two meet in a corner they overlap; only the deepest gets half cells, so none overlap.
+pub fn floor_fill(o: &DrawerOptions, pl: &DrawerPlan, clearance: f64) -> Vec<Strip> {
+    if o.outline.is_empty() || o.leave_out.is_empty() {
+        return Vec::new();
+    }
+    let [ax, ay] = &pl.axes;
+    let [px, py] = o.pitch;
+    let kx = ax.pieces.len();
+    let (nx, ny) = (ax.cells as i64, ay.cells as i64);
+    let all = pieces(&DrawerOptions { leave_out: Vec::new(), ..o.clone() }, pl);
+    let starts = |pieces: &[u32]| pieces.iter().scan(0u32, |acc, &k| { let s = *acc; *acc += k; Some(s) }).collect::<Vec<_>>();
+    let (cx0, cy0) = (starts(&ax.pieces), starts(&ay.pieces));
+    let at = |starts: &[u32], sizes: &[u32], k: i64| (0..sizes.len()).find(|&i| (starts[i] as i64) < k && k <= (starts[i] + sizes[i]) as i64);
+    let kept = |c: i64, r: i64| c >= 1 && r >= 1 && c <= nx && r <= ny && !o.leave_out.contains(&[c as u32, r as u32]);
+    // a cell's rectangle, and the piece it is in
+    let cell = |c: i64, r: i64| -> ([f64; 4], usize) {
+        let (i, j) = (at(&cx0, &ax.pieces, c).unwrap_or(0), at(&cy0, &ay.pieces, r).unwrap_or(0));
+        let p = &all[j * kx + i];
+        let x = p.cells.corner[0] + px * (c - 1 - cx0[i] as i64) as f64;
+        let y = p.cells.corner[1] + py * (r - 1 - cy0[j] as i64) as f64;
+        ([x, y, x + px, y + py], j * kx + i)
+    };
+    let half = o.half_cells && (px - PITCH).abs() < 1e-9 && (py - PITCH).abs() < 1e-9;
+    let mut out = Vec::new();
+    for &[c, r] in &o.leave_out {
+        let (c, r) = (c as i64, r as i64);
+        let (rc, _) = cell(c, r);
+        let mut found: Vec<(f64, Strip)> = Vec::new();
+        for (dx, dy) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)] {
+            if !kept(c + dx, r + dy) {
+                continue;
+            }
+            let (_, owner) = cell(c + dx, r + dy);
+            // the strip from the kept cell's side into this one, `depth` deep
+            // the sides along the strip: shrunk by the clearance where the floor ends right there
+            let mut side = [0.0f64, 0.0f64];
+            let strip = |depth: f64, side: [f64; 2]| match (dx, dy) {
+                (-1, _) => [rc[0], rc[1] + side[0], rc[0] + depth, rc[3] - side[1]],
+                (1, _) => [rc[2] - depth, rc[1] + side[0], rc[2], rc[3] - side[1]],
+                (_, -1) => [rc[0] + side[0], rc[1], rc[2] - side[1], rc[1] + depth],
+                _ => [rc[0] + side[0], rc[3] - depth, rc[2] - side[1], rc[3]],
+            };
+            // tested with `far` past its far side, `out` past the sides along it, and a hair in
+            // from the kept cell's side
+            let test = |depth: f64, side: [f64; 2], out: [f64; 2]| {
+                let [x0, y0, x1, y1] = strip(depth, side);
+                let e = 0.01;
+                let t = match (dx, dy) {
+                    (-1, _) => [x0 + e, y0 - out[0], x1 + clearance, y1 + out[1]],
+                    (1, _) => [x0 - clearance, y0 - out[0], x1 - e, y1 + out[1]],
+                    (_, -1) => [x0 - out[0], y0 + e, x1 + out[1], y1 + clearance],
+                    _ => [x0 - out[0], y0 - clearance, x1 + out[1], y1 - e],
+                };
+                on_floor(t, &o.outline)
+            };
+            let deepest = |side: [f64; 2]| {
+                let full = if dx != 0 { px } else { py };
+                if test(full, side, [-0.01; 2]) {
+                    return full;
+                }
+                let (mut lo, mut hi) = (0.0, full);
+                for _ in 0..24 {
+                    let mid = (lo + hi) / 2.0;
+                    if test(mid, side, [-0.01; 2]) { lo = mid } else { hi = mid }
+                }
+                lo
+            };
+            let lo = deepest(side);
+            for s in 0..2 {
+                let mut out = [-0.01; 2];
+                out[s] = clearance;
+                if lo > 0.0 && !test(lo, side, out) {
+                    side[s] = clearance;
+                }
+            }
+            let lo = if side != [0.0; 2] { deepest(side) } else { lo };
+            let depth = (lo * 100.0).floor() / 100.0;
+            if depth < 1.0 {
+                continue;
+            }
+            // a half cell may come up to 0.3 mm short at the floor's edge (the clearance, so the
+            // row under a notch that just misses a cell gets two)
+            let k = if half { ((depth + 0.3) / HALF_PITCH).floor() as u32 } else { 0 };
+            let half_cells = (k > 0).then(|| match (dx, dy) {
+                (-1, _) => Block { corner: [rc[0], rc[1]], nx: k, ny: 1, pitch: [HALF_PITCH, py] },
+                (1, _) => Block { corner: [rc[2] - HALF_PITCH * k as f64, rc[1]], nx: k, ny: 1, pitch: [HALF_PITCH, py] },
+                (_, -1) => Block { corner: [rc[0], rc[1]], nx: 1, ny: k, pitch: [px, HALF_PITCH] },
+                _ => Block { corner: [rc[0], rc[3] - HALF_PITCH * k as f64], nx: 1, ny: k, pitch: [px, HALF_PITCH] },
+            });
+            found.push((depth, Strip { rect: strip(depth, side), piece: owner, half_cells }));
+        }
+        // the deepest first, with its half cells; the others only where they reach past it
+        found.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let mut first: Option<[f64; 4]> = None;
+        for (_, s) in found {
+            let Some(f) = first else {
+                first = Some(s.rect);
+                out.push(s);
+                continue;
+            };
+            let [x0, y0, x1, y1] = s.rect;
+            let inner = [x0.max(f[0]), y0.max(f[1]), x1.min(f[2]), y1.min(f[3])];
+            if inner[2] <= inner[0] || inner[3] <= inner[1] {
+                out.push(Strip { half_cells: None, ..s });
+                continue;
+            }
+            let rests = crate::plate::rest([x0, y0, x1 - x0, y1 - y0], [inner[0], inner[1], inner[2] - inner[0], inner[3] - inner[1]]);
+            for [x, y, w, h] in rests.into_iter().filter(|r| r[2] > 0.5 && r[3] > 0.5) {
+                out.push(Strip { rect: [x, y, x + w, y + h], piece: s.piece, half_cells: None });
+            }
+        }
+    }
+    out
+}
+
+/// Commands for the strips joined to piece `p` (index `index` in `pieces`).
+fn strip_commands(out: &mut Vec<Value>, strips: &[Strip], index: usize, p: &Piece) {
+    for (n, s) in strips.iter().filter(|s| s.piece == index).enumerate() {
+        let [x0, y0, x1, y1] = s.rect;
+        out.push(cmd("solid.box", json!({"corner": [r4(x0), r4(y0), 0.0], "length": r4(x1 - x0), "width": r4(y1 - y0),
+            "height": r4(p.h), "operation": "join", "targets": [p.name]})));
+        if let Some(b) = s.half_cells {
+            crate::plate::half_pockets(out, &format!("{} Floor fill {}", p.name, n + 1), &p.name, p, b);
+        }
+    }
 }
 
 /// Pieces with every cell left out: they aren't made.
@@ -437,7 +588,14 @@ pub fn drawer_commands(o: &DrawerOptions) -> Result<(DrawerPlan, Vec<Value>), St
         let mut p = all.swap_remove(o.piece as usize - 1);
         p.make_cell = true;
         piece_commands(&mut out, &p);
+        strip_commands(&mut out, &floor_fill(o, &pl, FLOOR_FILL_CLEARANCE), o.piece as usize - 1, &p);
         return Ok((pl, out));
+    }
+    // the floor beside the cells kept, where the floor isn't a rectangle, filled last
+    let strips = floor_fill(o, &pl, FLOOR_FILL_CLEARANCE);
+    let mut fill = Vec::new();
+    for (index, p) in all.iter().enumerate() {
+        strip_commands(&mut fill, &strips, index, p);
     }
     // pieces with every cell left out aren't made
     let all: Vec<Piece> = all.into_iter().zip(&gone).filter(|(_, g)| !**g).map(|(p, _)| p).collect();
@@ -488,6 +646,7 @@ pub fn drawer_commands(o: &DrawerOptions) -> Result<(DrawerPlan, Vec<Value>), St
              a bigger grid or a smaller drawer"
         ));
     }
+    out.extend(fill);
     Ok((pl, out))
 }
 
@@ -499,7 +658,7 @@ mod tests {
 
     fn opts(drawer: [f64; 2], bed: [f64; 2]) -> DrawerOptions {
         DrawerOptions { drawer, bed, pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false, open: false, magnets: false, screws: false,
-                        origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "Drawer".into(), piece: 0, leave_out: vec![] }
+                        origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "Drawer".into(), piece: 0, leave_out: vec![], outline: vec![] }
     }
 
     #[test]
@@ -606,7 +765,7 @@ mod more_tests {
     #[test]
     fn a_big_drawer_stays_under_the_call_limit() {
         let o = DrawerOptions { drawer: [600.0, 500.0], bed: [256.0, 256.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false,
-                                open: false, magnets: true, screws: true, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![] };
+                                open: false, magnets: true, screws: true, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
         let (pl, c) = drawer_commands(&o).unwrap();
         assert_eq!((pl.axes[0].cells, pl.axes[1].cells), (14, 11));
         assert!(c.len() <= MAX_CALLS, "{} calls", c.len());
@@ -641,7 +800,7 @@ mod more_tests {
         assert_eq!((a.filler_low, a.filler_high), (6.0, 6.0));
         // the half cells are cut only into the pieces on that side
         let o = DrawerOptions { drawer: [400.0, 300.0], bed: [256.0, 256.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: true,
-                                open: false, magnets: false, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![] };
+                                open: false, magnets: false, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
         let (_, c) = drawer_commands(&o).unwrap();
         let named = |end: &str| c.iter().filter(|v| v["command"] == "sketch.create" && v["params"]["name"].as_str().unwrap().contains(end)).count();
         // 400 x 300: 9 x 7 cells, 22 and 6 mm over: half cells along X only, on the right pieces
@@ -660,18 +819,23 @@ mod more_tests {
         let pts = [[0.0, 0.0], [300.0, 0.0], [300.0, 200.0], [200.0, 200.0], [200.0, 120.0], [100.0, 120.0], [100.0, 200.0], [0.0, 200.0]];
         let outline: Vec<[[f64; 2]; 2]> = (0..pts.len()).map(|k| [pts[k], pts[(k + 1) % pts.len()]]).collect();
         let o = DrawerOptions { drawer: [299.5, 199.5], bed: [256.0, 256.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false,
-                                open: false, magnets: false, screws: false, origin: [0.25, 0.25], gap: 0.0, name: "D".into(), piece: 0, leave_out: vec![] };
+                                open: false, magnets: false, screws: false, origin: [0.25, 0.25], gap: 0.0, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
         let off = cells_off_floor(&o, &outline, 0.25).unwrap();
         // 7 x 4 cells from x 3.5 and y 15.5: columns 3 to 5 reach into the notch above y 120 (rows 3 and 4)
         assert_eq!(off, vec![[3, 3], [3, 4], [4, 3], [4, 4], [5, 3], [5, 4]]);
-        let (_, c) = drawer_commands(&DrawerOptions { leave_out: off, ..o }).unwrap();
+        let o = DrawerOptions { leave_out: off, outline, ..o };
+        let (pl, c) = drawer_commands(&o).unwrap();
         assert!(c.iter().any(|v| v["params"]["name"].as_str().is_some_and(|n| n.ends_with("Left out"))));
+        // beside the notch: 3.5 + 2 x 42 = 87.5 to 100 on the left (12.25 mm, solid), 213.5 + ... on the right
+        let strips = floor_fill(&o, &pl, FLOOR_FILL_CLEARANCE);
+        eprintln!("{strips:?}");
+        assert!(!strips.is_empty());
     }
 
     #[test]
     fn many_pieces_fit_in_one_long_job() {
         let o = DrawerOptions { drawer: [1000.0, 1000.0], bed: [100.0, 100.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false,
-                                open: false, magnets: false, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![] };
+                                open: false, magnets: false, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0, leave_out: vec![], outline: vec![] };
         let (pl, c) = drawer_commands(&o).unwrap();
         assert_eq!(pl.axes[0].pieces.len() * pl.axes[1].pieces.len(), 169);
         assert!(c.len() <= MAX_CALLS, "{} calls", c.len());

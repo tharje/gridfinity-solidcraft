@@ -138,8 +138,10 @@ one undo step, editable afterwards, and they keep working without the plugin.
 
   A floor that isn't a rectangle (an L or a U, say) works too: every cell that isn't wholly on the
   floor, 0.25 mm in from its edges, is left out (**Leave out cells**, `leave_out`, which you can
-  also fill in yourself), and a piece with no cells left isn't made. Along the edges of a notch the
-  floor shows between the cells and the edge; there is no filler there yet.
+  also fill in yourself), and a piece with no cells left isn't made. Beside the cells kept, the
+  floor left over in a cell left out is filled up to 0.25 mm from its edge, as the plate's own
+  filler is: with half cells where 21 mm or more fits (42 mm grid, Leftover space Half cells), the
+  rest solid. The floor's outline is kept with the plate's settings (`floor_outline`).
 
   ![A drawer plate on a U-shaped floor](docs/images/drawer-u-floor.png)
 

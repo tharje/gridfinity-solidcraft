@@ -621,6 +621,10 @@ pub fn parse_drawer(params: &Value) -> Result<DrawerOptions, String> {
         name: get_name(p, &format!("Gridfinity{half} drawer {}x{}", drawer[0], drawer[1]))?,
         piece,
         leave_out: get_leave_out(p, u32::MAX, u32::MAX)?,
+        outline: p.get("floor_outline").and_then(|v| v.as_array()).into_iter().flatten().filter_map(|s| {
+            let pt = |q: &Value| Some([q.get(0)?.as_f64()?, q.get(1)?.as_f64()?]);
+            Some([pt(s.get(0)?)?, pt(s.get(1)?)?])
+        }).collect(),
     })
 }
 
@@ -1296,6 +1300,11 @@ mod guest {
             }
             cells.sort();
             params["leave_out"] = json!(cells.iter().map(|[c, r]| format!("{c}-{r}")).collect::<Vec<_>>().join(", "));
+            if !cells.is_empty() {
+                // kept with the settings, so the plate can be made again the same without the pick
+                params["floor_outline"] = json!(outline.iter().map(|[a, b]| json!([[geometry::r4(a[0]), geometry::r4(a[1])],
+                    [geometry::r4(b[0]), geometry::r4(b[1])]])).collect::<Vec<_>>());
+            }
             lift = z;
         }
         let (mut body, mut cmds) = plan(entry, &params).map_err(&invalid)?;
