@@ -220,6 +220,7 @@ pub fn pieces(o: &DrawerOptions, pl: &DrawerPlan) -> Vec<Piece> {
                 sockets: [!left, !front],
                 make_cell: false,
                 cuts: Vec::new(),
+                round_cuts: false,
             });
         }
     }

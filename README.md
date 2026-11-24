@@ -100,7 +100,10 @@ one undo step, editable afterwards, and they keep working without the plugin.
   or an obstacle. List the cells to leave empty as column-row, counted from 1 at the front left,
   such as `1-3, 2-3, 4-1`, or click them in the model with the panel's **Layout** tab (below). Where
   a cell is left out, the plate ends just as at its outer edge, since a Gridfinity cell's edge is
-  the plate's edge.
+  the plate's edge. The corners it leaves are rounded like the plate's own (4 mm): outer corners
+  are cut round, and inner corners are filled in round (#2, thanks to kinghat). Cells that only
+  meet at a corner become separate bodies. A drawer plate keeps its corners square, to fit its
+  drawer.
 
   | The base plate form with Leave out cells | The plate it makes (back), and one with cells clicked away |
   |---|---|

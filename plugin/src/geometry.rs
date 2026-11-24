@@ -812,6 +812,7 @@ pub fn baseplate_piece(o: &BaseplateOptions) -> crate::plate::Piece {
         sockets: [false; 2],
         make_cell: true,
         cuts: left_out_rects(o, corner),
+        round_cuts: true,
     }
 }
 

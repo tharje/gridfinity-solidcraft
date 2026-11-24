@@ -1812,9 +1812,16 @@ mod tests {
         let c = baseplate_commands(&o);
         let at = c.iter().position(|v| v["params"]["name"] == "Gridfinity baseplate 3x2 Left out").unwrap();
         // 1-1: through the filler on the left, past the plate at the front; 3-2: past the right and back
-        assert_eq!(c[at + 1]["params"], json!({"p0": [-0.5, -0.5], "p1": [47.0, 42.0]}));
-        assert_eq!(c[at + 2]["params"], json!({"p0": [89.0, 42.0], "p1": [131.5, 84.5]}));
-        assert_eq!(c.last().unwrap()["params"]["operation"], "cut");
+        // each has one inner corner, rounded off: 2-1's back left and 2-2's front left
+        let pts = |i: usize| c[at + i]["params"]["points"].as_array().unwrap().clone();
+        assert_eq!((pts(1).len(), pts(2).len()), (12, 12));
+        assert_eq!((pts(1)[0].clone(), pts(1)[1].clone()), (json!([-0.5, -0.5]), json!([47.0, -0.5])));
+        assert_eq!((pts(2)[0].clone(), pts(2)[8].clone(), pts(2)[10].clone()), (json!([89.0, 46.0]), json!([93.0, 42.0]), json!([131.5, 84.5])));
+        let op = |sk: &str| c.iter().find(|v| v["command"] == "solid.extrude" && v["params"]["sketch"].as_str().is_some_and(|s| s.ends_with(sk)))
+            .map(|v| v["params"]["operation"].clone());
+        assert_eq!(op("Left out"), Some(json!("cut")));
+        // the outer corners it leaves are cut round first
+        assert_eq!(op("Left out corners"), Some(json!("cut")));
         assert!(parse_baseplate(&json!({"width": 2, "depth": 1, "leave_out": "3-1"})).unwrap_err().contains("outside the plate"));
         assert!(parse_baseplate(&json!({"width": 2, "depth": 1, "leave_out": "1-1, 2-1"})).unwrap_err().contains("no cells"));
         assert!(parse_baseplate(&json!({"leave_out": "a"})).unwrap_err().contains("not a cell"));

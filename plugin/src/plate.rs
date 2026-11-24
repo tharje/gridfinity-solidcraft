@@ -139,6 +139,9 @@ pub struct Piece {
     pub make_cell: bool,
     /// Rectangles cut out of the piece at the end ([x0, y0, x1, y1]): the cells left out.
     pub cuts: Vec<[f64; 4]>,
+    /// Round the corners the cuts leave, as the plate's own corners are (a base plate's; a
+    /// drawer plate fits its drawer up to the walls instead).
+    pub round_cuts: bool,
 }
 
 /// The half cells strips are copied from, one of each size (21 x 42 beside the cells, 42 x 21
@@ -335,13 +338,93 @@ pub fn piece_commands_seeded(out: &mut Vec<Value>, p: &Piece, seeds: &mut Seeds)
     }
     // Cells left out are cut away last. A cell's edge is the same as the plate's outer edge, so
     // what stays looks as if it were made that shape.
+    // On a base plate the corners this leaves are rounded like the plate's own: the outer ones
+    // first, while the plate is still one body (cells that only meet at a corner come apart in
+    // the cut), and the inner ones by leaving them out of the cut.
     if !p.cuts.is_empty() {
-        let rects = p.cuts.iter().map(|[xa, ya, xb, yb]|
-            cmd("sketch.rectangle.two_point", json!({"p0": [r4(*xa), r4(*ya)], "p1": [r4(*xb), r4(*yb)]}))).collect();
-        sketch(out, -0.5, &n("Left out"), rects);
+        let (outer, inner) = if p.round_cuts { cut_corners(p) } else { (Vec::new(), Vec::new()) };
+        let list: Vec<_> = outer.iter().map(|&(c, s)| (true, c, s)).collect();
+        corners(out, &n("Left out corners"), b, h, &list);
+        let shapes = p.cuts.iter().map(|&rect| cut_shape(rect, &inner)).collect();
+        sketch(out, -0.5, &n("Left out"), shapes);
         out.push(extrude(&n("Left out"), h + 1.0, Op::Cut(b), None, ""));
     }
 }
+
+/// The corners the cuts leave in a piece: outer ones, to round off as the plate's own corners
+/// are, and inner ones, to fill in with the same radius. Each is a point and the direction (±1,
+/// ±1) into the material (outer) or into the space cut away (inner). Found by looking at the four
+/// quarters around each point where cut edges and the piece's edges cross.
+pub(crate) fn cut_corners(p: &Piece) -> (Vec<([f64; 2], [f64; 2])>, Vec<([f64; 2], [f64; 2])>) {
+    let [px, py] = p.cells.pitch;
+    let [fl, fr, ff, fb] = p.filler;
+    let (x0, y0) = (p.cells.corner[0] - fl, p.cells.corner[1] - ff);
+    let (x1, y1) = (p.cells.corner[0] + px * p.cells.nx as f64 + fr, p.cells.corner[1] + py * p.cells.ny as f64 + fb);
+    let solid = |x: f64, y: f64| x > x0 && x < x1 && y > y0 && y < y1
+        && !p.cuts.iter().any(|&[xa, ya, xb, yb]| x > xa && x < xb && y > ya && y < yb);
+    let near = |v: &mut Vec<f64>, a: f64| if !v.iter().any(|&b| (a - b).abs() < 1e-6) { v.push(a) };
+    let (mut xs, mut ys) = (vec![x0, x1], vec![y0, y1]);
+    for &[xa, ya, xb, yb] in &p.cuts {
+        for x in [xa, xb].into_iter().filter(|&x| x > x0 && x < x1) {
+            near(&mut xs, x);
+        }
+        for y in [ya, yb].into_iter().filter(|&y| y > y0 && y < y1) {
+            near(&mut ys, y);
+        }
+    }
+    let d = 0.3;
+    let (mut outer, mut inner) = (Vec::new(), Vec::new());
+    for &x in &xs {
+        for &y in &ys {
+            // the piece's own corners are rounded already
+            if (x == x0 || x == x1) && (y == y0 || y == y1) {
+                continue;
+            }
+            let quarters = [[1.0, 1.0], [-1.0, 1.0], [-1.0, -1.0], [1.0, -1.0]];
+            let full: Vec<[f64; 2]> = quarters.iter().copied().filter(|&[sx, sy]| solid(x + sx * d, y + sy * d)).collect();
+            match full.len() {
+                // one quarter, or two across from each other (cells meeting at a corner)
+                1 => outer.push(([x, y], full[0])),
+                2 if full[0][0] != full[1][0] && full[0][1] != full[1][1] => outer.extend(full.iter().map(|&s| ([x, y], s))),
+                3 => {
+                    let empty = quarters.iter().copied().find(|q| !full.contains(q)).unwrap();
+                    inner.push(([x, y], empty));
+                }
+                _ => {}
+            }
+        }
+    }
+    (outer, inner)
+}
+
+/// A cut's rectangle, with the inner corners (from `cut_corners`) at its own corners rounded
+/// off with the plate's corner radius: the plate keeps that much there.
+fn cut_shape([xa, ya, xb, yb]: [f64; 4], inner: &[([f64; 2], [f64; 2])]) -> Value {
+    let corners = [([xa, ya], [1.0, 1.0]), ([xb, ya], [-1.0, 1.0]), ([xb, yb], [-1.0, -1.0]), ([xa, yb], [1.0, -1.0])];
+    if !corners.iter().any(|c| inner.contains(c)) {
+        return cmd("sketch.rectangle.two_point", json!({"p0": [r4(xa), r4(ya)], "p1": [r4(xb), r4(yb)]}));
+    }
+    let r = PLATE_R;
+    let mut pts = Vec::new();
+    for (i, &([x, y], [sx, sy])) in corners.iter().enumerate() {
+        if !inner.contains(&([x, y], [sx, sy])) {
+            pts.push([r4(x), r4(y)]);
+            continue;
+        }
+        // a quarter circle round (x + sx r, y + sy r), from the side the outline comes along
+        // (up or down the left and right sides before the 1st and 3rd corners) to the next
+        let (cx, cy) = (x + sx * r, y + sy * r);
+        for k in 0..=CORNER_STEPS {
+            let t = k as f64 / CORNER_STEPS as f64;
+            let a = std::f64::consts::FRAC_PI_2 * if i % 2 == 0 { t } else { 1.0 - t };
+            pts.push([r4(cx - sx * r * a.cos()), r4(cy - sy * r * a.sin())]);
+        }
+    }
+    cmd("sketch.line", json!({"points": pts, "closed": true}))
+}
+
+/// Straight steps in the quarter circle of a rounded inner corner.
+const CORNER_STEPS: u32 = 8;
 
 /// The first cell of `p`, as body `p.name`: a square block with its pocket and, when they are
 /// the same in every cell, its magnet and screw holes.
@@ -494,6 +577,29 @@ mod tests {
     use super::*;
     use crate::geometry::{baseplate_piece, BaseplateOptions};
     use crate::geometry::{MAGNET, MAGNET_DEPTH};
+
+    #[test]
+    fn corners_left_by_cells_left_out_are_rounded() {
+        // kinghat's plate (#2): 3 x 3 without the back left, the middle and the front right cell
+        let o = BaseplateOptions { nx: 3, ny: 3, pitch: [PITCH; 2], open: false, magnets: false, magnet: MAGNET, screws: false,
+            filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "P".into(), leave_out: vec![[1, 3], [2, 2], [3, 1]] };
+        let (mut outer, mut inner) = cut_corners(&baseplate_piece(&o));
+        let key = |v: &([f64; 2], [f64; 2])| format!("{:?}", v);
+        outer.sort_by_key(key);
+        inner.sort_by_key(key);
+        let p = PITCH;
+        let mut want_outer = vec![
+            ([0.0, 2.0 * p], [1.0, -1.0]), ([p, 3.0 * p], [1.0, -1.0]),
+            ([p, 2.0 * p], [-1.0, -1.0]), ([p, 2.0 * p], [1.0, 1.0]),
+            ([2.0 * p, p], [-1.0, -1.0]), ([2.0 * p, p], [1.0, 1.0]),
+            ([2.0 * p, 0.0], [-1.0, 1.0]), ([3.0 * p, p], [-1.0, 1.0]),
+        ];
+        want_outer.sort_by_key(key);
+        assert_eq!(outer, want_outer);
+        let mut want_inner = vec![([p, p], [1.0, 1.0]), ([2.0 * p, 2.0 * p], [-1.0, -1.0])];
+        want_inner.sort_by_key(key);
+        assert_eq!(inner, want_inner);
+    }
 
     fn plate(magnets: bool, screws: bool, pitch: f64) -> Vec<Value> {
         let o = BaseplateOptions { nx: 2, ny: 3, pitch: [pitch; 2], open: false, magnets, magnet: MAGNET, screws, filler: [0.0; 4],
