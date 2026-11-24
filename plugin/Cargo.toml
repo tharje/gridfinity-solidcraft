@@ -10,7 +10,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wit-bindgen = { version = "0.36", default-features = false, features = ["macros", "realloc"] }
+wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc"] }
 serde_json = "1"
 
 [profile.release]

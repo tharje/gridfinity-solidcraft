@@ -3,6 +3,7 @@
 
 pub mod drawer;
 pub mod geometry;
+pub mod panel;
 pub mod plate;
 
 use drawer::{drawer_commands, DrawerOptions, Filler, LAYOUT_GAP};
@@ -12,7 +13,7 @@ use serde_json::json;
 
 #[cfg(target_arch = "wasm32")]
 mod bindings {
-    wit_bindgen::generate!({ world: "command-plugin", path: "wit" });
+    wit_bindgen::generate!({ world: "gridfinity", path: "wit" });
 }
 
 /// Largest bin or baseplate side: 12 full cells (504 mm), and never more than 24 cells.
@@ -1043,7 +1044,11 @@ mod guest {
     use bindings::craft::plugin::commands;
     use bindings::craft::plugin::control;
     use bindings::craft::plugin::types::{FieldFailure, PluginError};
+    use bindings::craft::plugin::types::{Datum, Value as UiValue};
+    use bindings::craft::plugin::ui::{self, ButtonSpec, Column, Declarations, DockZone, Field, FieldKind, FormSpec, Layout, Node,
+        PanelSpec, SelectionMode, SplitSpec, Tab, TableSpec, UiEvent, Widget};
     use bindings::exports::craft::plugin::entry::Guest;
+    use bindings::exports::craft::plugin::ui_provider::Guest as UiGuest;
 
     struct Gridfinity;
 
@@ -1326,11 +1331,152 @@ mod guest {
         fn execute(entry: String, params: String) -> Result<String, PluginError> {
             let params: Value = serde_json::from_str(if params.trim().is_empty() { "{}" } else { &params })
                 .map_err(|e| PluginError::InvalidInput(FieldFailure { field: "params".into(), reason: e.to_string() }))?;
-            if entry == "edit" {
-                edit(&params)
-            } else {
-                build(&entry, params, None, 0)
+            match entry.as_str() {
+                "edit" => edit(&params),
+                "panel" => {
+                    let _ = ui::show_panel(PANEL, true);
+                    panel_refresh().map(|n| json!({"parts": n}).to_string())
+                }
+                "panel-refresh" => panel_refresh().map(|n| json!({"parts": n}).to_string()),
+                "panel-select" => panel_select(&params),
+                e if e.starts_with("quick-") => quick(e),
+                _ => build(&entry, params, None, 0),
             }
+        }
+    }
+
+    const PANEL: &str = "parts";
+
+    fn text(path: String, v: &str) -> Datum {
+        Datum { path, value: UiValue::Text(v.to_string()) }
+    }
+
+    fn stored_items() -> Result<Value, PluginError> {
+        let stored = host("storage.get", json!({})).map_err(invalid_in("panel"))?;
+        Ok(stored["document"]["items"].clone())
+    }
+
+    /// Fills the parts table from the settings stored in the design and empties the settings
+    /// form; returns the row count.
+    fn panel_refresh() -> Result<usize, PluginError> {
+        let rows = panel::rows(&stored_items()?);
+        ui::clear_data(PANEL)?;
+        let mut data = Vec::new();
+        for (i, r) in rows.iter().enumerate() {
+            for (key, v) in [("id", &r.id), ("name", &r.name), ("kind", &r.kind), ("size", &r.size), ("height", &r.height), ("label", &r.label)] {
+                data.push(text(format!("/parts/{i}/{key}"), v));
+            }
+        }
+        for (key, _) in panel::DETAILS {
+            data.push(text(format!("/details/{key}"), ""));
+        }
+        ui::set_data(PANEL, &data)?;
+        Ok(rows.len())
+    }
+
+    /// A row clicked: its settings in the form below the table.
+    fn panel_select(event: &Value) -> Result<String, PluginError> {
+        let Some(id) = event["row"].as_str() else { return Ok("{}".into()) };
+        let items = stored_items()?;
+        let Some(row) = panel::rows(&items).into_iter().find(|r| r.id == id) else { return Ok("{}".into()) };
+        let data: Vec<Datum> = panel::details(&row, &items[id]).into_iter()
+            .map(|(key, v)| text(format!("/details/{key}"), &v)).collect();
+        ui::set_data(PANEL, &data)?;
+        Ok(json!({"selected": id}).to_string())
+    }
+
+    /// A Quick button: its part, beside everything in the design (to the right, 10 mm apart).
+    fn quick(entry: &str) -> Result<String, PluginError> {
+        let invalid = invalid_in("quick");
+        let (_, _, what, mut params) = panel::presets().into_iter().find(|p| p.0 == entry)
+            .ok_or_else(|| invalid(format!("unknown entry `{entry}`")))?;
+        let m = host("inspect.measure", json!({})).map_err(&invalid)?;
+        let right = m["bodies"].as_array().into_iter().flatten()
+            .filter_map(|b| b["bbox"]["max"][0].as_f64()).fold(f64::NEG_INFINITY, f64::max);
+        if right.is_finite() {
+            params["position_x"] = json!(((right + 10.0) * 10.0).round() / 10.0);
+        }
+        let reply = build(what, params, None, 0)?;
+        let _ = panel_refresh();
+        Ok(reply)
+    }
+
+    fn st(v: &Value) -> String {
+        v.as_str().unwrap_or_default().to_string()
+    }
+
+    fn opt(v: &Value) -> Option<String> {
+        v.as_str().map(String::from)
+    }
+
+    /// One layout node of `panel::declarations()` as the WIT record.
+    fn widget(w: &Value) -> Widget {
+        let ids = |v: &Value| v.as_array().into_iter().flatten().filter_map(|i| i.as_u64()).map(|i| i as u32).collect::<Vec<_>>();
+        let button = |b: &Value| ButtonSpec { label: st(&b["label"]), icon: opt(&b["icon"]), entry: st(&b["entry"]) };
+        let (kind, v) = w.as_object().and_then(|o| o.iter().next()).expect("one widget a node");
+        match kind.as_str() {
+            "group" => Widget::Group(ids(v)),
+            "tabs" => Widget::Tabs(v.as_array().into_iter().flatten()
+                .map(|t| Tab { label: st(&t["label"]), child: t["child"].as_u64().unwrap_or(0) as u32 }).collect()),
+            "split" => Widget::Split(SplitSpec { vertical: v["vertical"].as_bool().unwrap_or(false),
+                first: v["first"].as_u64().unwrap_or(0) as u32, second: v["second"].as_u64().unwrap_or(0) as u32 }),
+            "toolbar" => Widget::Toolbar(v.as_array().into_iter().flatten().map(button).collect()),
+            "button" => Widget::Button(button(v)),
+            "text" => Widget::Text(st(v)),
+            "table" => Widget::Table(TableSpec {
+                bind: st(&v["bind"]),
+                row_id: st(&v["row_id"]),
+                columns: v["columns"].as_array().into_iter().flatten()
+                    .map(|c| Column { key: st(&c["key"]), label: st(&c["label"]), unit: opt(&c["unit"]) }).collect(),
+                select: match v["select"].as_str() { Some("multi") => SelectionMode::Multi, Some("none") => SelectionMode::None, _ => SelectionMode::Single },
+                on_select: opt(&v["on_select"]),
+                on_edit: opt(&v["on_edit"]),
+            }),
+            "form" => Widget::Form(FormSpec {
+                bind: st(&v["bind"]),
+                fields: v["fields"].as_array().into_iter().flatten().map(|f| Field {
+                    key: st(&f["key"]),
+                    label: st(&f["label"]),
+                    kind: match f["kind"].as_str() { Some("number") => FieldKind::Number, Some("toggle") => FieldKind::Toggle,
+                                                     Some("choice") => FieldKind::Choice, _ => FieldKind::Text },
+                    choices: f["choices"].as_array().into_iter().flatten().map(st).collect(),
+                    on_change: opt(&f["on_change"]),
+                }).collect(),
+            }),
+            other => Widget::EmptyState(format!("unknown widget {other}")),
+        }
+    }
+
+    impl UiGuest for Gridfinity {
+        fn describe() -> Declarations {
+            let d = panel::declarations();
+            Declarations {
+                ui_version: d["ui_version"].as_u64().unwrap_or(1) as u32,
+                panels: d["panels"].as_array().into_iter().flatten().map(|p| PanelSpec {
+                    id: st(&p["id"]),
+                    title: st(&p["title"]),
+                    zones: p["zones"].as_array().into_iter().flatten().map(|z| match z.as_str() {
+                        Some("left") => DockZone::Left, Some("bottom") => DockZone::Bottom, _ => DockZone::Right }).collect(),
+                    layout: Layout {
+                        root: p["layout"]["root"].as_u64().unwrap_or(0) as u32,
+                        nodes: p["layout"]["nodes"].as_array().into_iter().flatten().map(|n| Node { widget: widget(&n["widget"]) }).collect(),
+                    },
+                }).collect(),
+                workspaces: vec![],
+            }
+        }
+
+        fn on_event(_event: UiEvent) -> Result<(), PluginError> {
+            // the entry the event names does the work
+            Ok(())
+        }
+
+        fn on_enter(_workspace: String) -> Result<(), PluginError> {
+            Ok(())
+        }
+
+        fn on_exit(_workspace: String) -> Result<(), PluginError> {
+            Ok(())
         }
     }
 

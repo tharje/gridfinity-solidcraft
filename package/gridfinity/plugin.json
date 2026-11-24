@@ -3,7 +3,7 @@
  "name": "Gridfinity",
  "version": "1.6.0",
  "description": "Gridfinity bins (hollow, eco or solid), baseplates, and drawer baseplates split to fit your printer or a picked drawer floor, on a full, half or custom grid. Edit bin changes a bin it made, keeping each setting left at Keep.",
- "capabilities": ["commands@0.1", "storage@0.1"],
+ "capabilities": ["commands@0.2", "storage@0.1", "ui@0.1"],
  "runtime": {
   "module": "plugin.wasm",
   "entries": [
@@ -138,10 +138,68 @@
      "x-solidcraft-icon": "i/edit.svg"
     },
     "slots": [{"kind": "menu", "name": "Edit Gridfinity bin"}, {"kind": "ribbon", "name": "Edit bin"}]
+   },
+   {
+    "name": "panel",
+    "effect": "read",
+    "input_schema": {
+     "type": "object"
+    },
+    "slots": [{"kind": "menu", "name": "Gridfinity panel"}, {"kind": "ribbon", "name": "Panel"}]
+   },
+   {
+    "name": "panel-refresh",
+    "effect": "read",
+    "input_schema": {
+     "type": "object"
+    }
+   },
+   {
+    "name": "panel-select",
+    "effect": "read",
+    "input_schema": {
+     "type": "object"
+    }
+   },
+   {
+    "name": "quick-bin-1x1",
+    "effect": "edit",
+    "input_schema": {
+     "type": "object"
+    }
+   },
+   {
+    "name": "quick-bin-scoop",
+    "effect": "edit",
+    "input_schema": {
+     "type": "object"
+    }
+   },
+   {
+    "name": "quick-bin-4",
+    "effect": "edit",
+    "input_schema": {
+     "type": "object"
+    }
+   },
+   {
+    "name": "quick-bin-eco",
+    "effect": "edit",
+    "input_schema": {
+     "type": "object"
+    }
+   },
+   {
+    "name": "quick-plate",
+    "effect": "edit",
+    "input_schema": {
+     "type": "object"
+    }
    }
   ],
   "commands": ["sketch.create", "sketch.rectangle.rounded", "sketch.circle.center", "sketch.finish", "solid.extrude", "solid.box", "sketch.line", "sketch.pattern.rectangular", "solid.move", "solid.pattern.rectangular", "solid.combine", "sketch.rectangle.two_point", "sketch.text", "parameters.add", "parameters.list", "model.body_features", "timeline.group", "model.faces", "model.edges", "inspect.measure", "storage.get", "storage.patch", "timeline.delete", "parameters.delete", "drawing.create", "drawing.view.base", "drawing.view.inspect", "drawing.note.add", "drawing.close"],
   "data_format": 1,
-  "limits": {"fuel": 2000000000, "memory_mib": 64, "deadline_ms": 30000}
+  "limits": {"fuel": 2000000000, "memory_mib": 64, "deadline_ms": 30000},
+  "ui": {"panels": [{"id": "parts", "layout": {"nodes": [{"widget": {"tabs": [{"child": 1, "label": "Parts"}, {"child": 6, "label": "Quick"}]}}, {"widget": {"split": {"first": 5, "second": 4, "vertical": false}}}, {"widget": {"toolbar": [{"entry": "panel-refresh", "icon": null, "label": "Refresh"}]}}, {"widget": {"table": {"bind": "/parts", "columns": [{"key": "name", "label": "Name", "unit": null}, {"key": "kind", "label": "Part", "unit": null}, {"key": "size", "label": "Size", "unit": null}, {"key": "height", "label": "Height", "unit": null}, {"key": "label", "label": "Label", "unit": null}], "on_edit": null, "on_select": "panel-select", "row_id": "id", "select": "single"}}}, {"widget": {"form": {"bind": "/details", "fields": [{"choices": [], "key": "part", "kind": "text", "label": "Part", "on_change": null}, {"choices": [], "key": "size", "kind": "text", "label": "Size", "on_change": null}, {"choices": [], "key": "height", "kind": "text", "label": "Height", "on_change": null}, {"choices": [], "key": "inside", "kind": "text", "label": "Inside", "on_change": null}, {"choices": [], "key": "compartments", "kind": "text", "label": "Compartments", "on_change": null}, {"choices": [], "key": "scoop", "kind": "text", "label": "Scoop", "on_change": null}, {"choices": [], "key": "label_tab", "kind": "text", "label": "Label tab", "on_change": null}, {"choices": [], "key": "label", "kind": "text", "label": "Label text", "on_change": null}, {"choices": [], "key": "holes", "kind": "text", "label": "Holes", "on_change": null}, {"choices": [], "key": "lip", "kind": "text", "label": "Stacking lip", "on_change": null}]}}}, {"widget": {"group": [2, 3]}}, {"widget": {"group": [7, 8, 9, 10, 11, 12]}}, {"widget": {"text": "One click makes the part beside what is already in the design. Change a bin afterwards with Edit bin."}}, {"widget": {"button": {"entry": "quick-bin-1x1", "icon": null, "label": "Bin 1 x 1 x 6"}}}, {"widget": {"button": {"entry": "quick-bin-scoop", "icon": null, "label": "Bin 2 x 1 x 6, scoop and sticker tab"}}}, {"widget": {"button": {"entry": "quick-bin-4", "icon": null, "label": "Bin 2 x 2 x 6, four compartments"}}}, {"widget": {"button": {"entry": "quick-bin-eco", "icon": null, "label": "Eco bin 3 x 1 x 3"}}}, {"widget": {"button": {"entry": "quick-plate", "icon": null, "label": "Base plate 4 x 4, magnet holes"}}}], "root": 0}, "title": "Gridfinity", "zones": ["bottom", "right"]}], "ui_version": 1, "workspaces": []}
  }
 }
