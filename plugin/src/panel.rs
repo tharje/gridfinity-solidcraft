@@ -117,11 +117,22 @@ pub fn presets() -> Vec<(&'static str, &'static str, &'static str, Value)> {
     ]
 }
 
+/// The entries the panel runs, and their effect. `panel` also has a ribbon button.
+pub fn entries() -> Vec<(&'static str, &'static str)> {
+    let mut v = vec![("panel", "read"), ("panel-refresh", "read"), ("panel-select", "read")];
+    v.extend(presets().into_iter().map(|p| (p.0, "edit")));
+    v.extend([("layout-remove", "edit"), ("layout-restore", "edit")]);
+    v
+}
+
+/// The node the Layout tab starts at: after the Quick buttons.
+const LAYOUT: usize = 8 + 5;
+
 /// The panel's declarations, as in plugin.json's `runtime.ui`.
 pub fn declarations() -> Value {
     let col = |k: &str, l: &str| json!({"key": k, "label": l, "unit": null});
     let mut nodes = vec![
-        json!({"widget": {"tabs": [{"label": "Parts", "child": 1}, {"label": "Quick", "child": 6}]}}),
+        json!({"widget": {"tabs": [{"label": "Parts", "child": 1}, {"label": "Quick", "child": 6}, {"label": "Layout", "child": LAYOUT}]}}),
         // the table, and beside it the settings of the row clicked
         json!({"widget": {"split": {"vertical": false, "first": 5, "second": 4}}}),
         json!({"widget": {"toolbar": [{"label": "Refresh", "icon": null, "entry": "panel-refresh"}]}}),
@@ -138,6 +149,16 @@ pub fn declarations() -> Value {
     for (entry, label, _, _) in presets() {
         nodes.push(json!({"widget": {"button": {"label": label, "icon": null, "entry": entry}}}));
     }
+    assert_eq!(nodes.len(), LAYOUT);
+    let n = nodes.len();
+    nodes.push(json!({"widget": {"group": [n + 1, n + 2]}}));
+    nodes.push(json!({"widget": {"text": "Make a base plate that fits a space that isn't a rectangle: click Remove a cell, then a pocket of a \
+        base plate in the model, and it is made again without that cell. Restore all cells: click it, then the plate."}}));
+    nodes.push(json!({"widget": {"form": {"bind": "/layout", "fields": [
+        {"key": "remove", "label": "Remove a cell", "kind": "selection", "choices": [], "on_change": "layout-remove"},
+        {"key": "restore", "label": "Restore all cells", "kind": "selection", "choices": [], "on_change": "layout-restore"},
+        {"key": "status", "label": "Result", "kind": "text", "choices": [], "on_change": null},
+    ]}}}));
     json!({"ui_version": 1, "panels": [{"id": "parts", "title": "Gridfinity", "zones": ["bottom", "right"],
         "layout": {"root": 0, "nodes": nodes}}], "workspaces": []})
 }
@@ -175,9 +196,9 @@ mod tests {
     fn manifest_has_the_panel() {
         let m: Value = serde_json::from_str(include_str!("../../package/gridfinity/plugin.json")).unwrap();
         assert_eq!(m["runtime"]["ui"], declarations());
-        let entries: Vec<&str> = m["runtime"]["entries"].as_array().unwrap().iter().filter_map(|e| e["name"].as_str()).collect();
-        for (entry, _, _, _) in presets() {
-            assert!(entries.contains(&entry), "{entry}");
+        let entries = m["runtime"]["entries"].as_array().unwrap();
+        for (entry, effect) in super::entries() {
+            assert!(entries.iter().any(|e| e["name"] == entry && e["effect"] == effect), "{entry}");
         }
     }
 }

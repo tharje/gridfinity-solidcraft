@@ -484,7 +484,7 @@ mod tests {
 
     fn plate(magnets: bool, screws: bool, pitch: f64) -> Vec<Value> {
         let o = BaseplateOptions { nx: 2, ny: 3, pitch: [pitch; 2], open: false, magnets, screws, filler: [0.0; 4],
-            half_cells: false, origin: [0.0, 0.0], name: "P".into() };
+            half_cells: false, origin: [0.0, 0.0], name: "P".into(), leave_out: vec![] };
         let mut out = Vec::new();
         piece_commands(&mut out, &baseplate_piece(&o));
         out

@@ -207,6 +207,9 @@ pub struct BaseplateOptions {
     pub half_cells: bool,
     pub origin: [f64; 2],
     pub name: String,
+    /// Cells left out, so the plate fits a space that isn't a rectangle: column and row, from 1,
+    /// counted from the front left.
+    pub leave_out: Vec<[u32; 2]>,
 }
 
 pub(crate) fn r4(v: f64) -> f64 {
@@ -764,7 +767,32 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
 
 pub fn baseplate_commands(o: &BaseplateOptions) -> Vec<Value> {
     let mut out = Vec::new();
-    crate::plate::piece_commands(&mut out, &baseplate_piece(o));
+    let piece = baseplate_piece(o);
+    crate::plate::piece_commands(&mut out, &piece);
+    if !o.leave_out.is_empty() {
+        // Cells left out are cut away. A cell's edge is the same as the plate's outer edge, so
+        // what stays looks as if it were made that shape. The cut reaches past the cell where
+        // there is nothing to keep beside it (the plate's edge, its filler, a cell also left
+        // out), so no thin wall is left there.
+        let [px, py] = o.pitch;
+        let [x0, y0] = piece.cells.corner;
+        let [fl, fr, ff, fb] = o.filler;
+        let out_at = |c: i64, r: i64| c < 1 || r < 1 || c > o.nx as i64 || r > o.ny as i64
+            || o.leave_out.contains(&[c as u32, r as u32]);
+        let rects = o.leave_out.iter().map(|&[c, r]| {
+            let (ci, ri) = (c as i64, r as i64);
+            let reach = |outside: bool, edge: bool, filler: f64| if !outside { 0.0 } else if edge { filler + 0.5 } else { 0.5 };
+            let left = reach(out_at(ci - 1, ri), c == 1, fl);
+            let right = reach(out_at(ci + 1, ri), c == o.nx, fr);
+            let front = reach(out_at(ci, ri - 1), r == 1, ff);
+            let back = reach(out_at(ci, ri + 1), r == o.ny, fb);
+            let (xa, ya) = (x0 + px * (c - 1) as f64, y0 + py * (r - 1) as f64);
+            cmd("sketch.rectangle.two_point", json!({"p0": [r4(xa - left), r4(ya - front)], "p1": [r4(xa + px + right), r4(ya + py + back)]}))
+        }).collect();
+        let name = format!("{} Left out", o.name);
+        sketch(&mut out, -0.5, &name, rects);
+        out.push(extrude(&name, piece.h + 1.0, Op::Cut(&o.name), None, ""));
+    }
     out
 }
 
@@ -1068,7 +1096,7 @@ mod tests {
         assert_eq!(circles(&c), vec![(8.0, 12.5), (32.0, 12.5)]);
         // outside 39.5 x 24.5, feet the same at the top
         assert!(c.iter().any(|v| v["command"] == "sketch.rectangle.rounded" && v["params"]["p1"] == json!([39.75, 24.75])));
-        let p = BaseplateOptions { nx: 1, ny: 1, pitch: [40.0, 25.0], open: false, magnets: true, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into() };
+        let p = BaseplateOptions { nx: 1, ny: 1, pitch: [40.0, 25.0], open: false, magnets: true, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into(), leave_out: vec![] };
         let pc = baseplate_commands(&p);
         let magnets = |c: &[Value]| -> Vec<Value> { c.iter().filter(|v| v["params"]["diameter"] == json!(MAGNET_D)).cloned().collect() };
         assert_eq!(circles(&magnets(&pc)), circles(&c));
@@ -1080,7 +1108,7 @@ mod tests {
 
     #[test]
     fn baseplate_is_one_cell_repeated_with_rounded_corners() {
-        let c = baseplate_commands(&BaseplateOptions { nx: 3, ny: 2, pitch: [PITCH; 2], open: false, magnets: false, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into() });
+        let c = baseplate_commands(&BaseplateOptions { nx: 3, ny: 2, pitch: [PITCH; 2], open: false, magnets: false, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "Plate".into(), leave_out: vec![] });
         let pockets = c.iter().filter(|v| v["command"] == "sketch.rectangle.rounded" && v["params"]["radius"] == json!(3.95)).count();
         assert_eq!(pockets, 1);
         // a row of 3, then 2 rows
@@ -1103,7 +1131,7 @@ mod tests {
         o.div_x = 10;
         o.div_y = 10;
         assert!(bin_commands(&o).len() < 100);
-        let p = BaseplateOptions { nx: 24, ny: 24, pitch: [HALF_PITCH; 2], open: false, magnets: true, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "P".into() };
+        let p = BaseplateOptions { nx: 24, ny: 24, pitch: [HALF_PITCH; 2], open: false, magnets: true, screws: false, filler: [0.0; 4], half_cells: false, origin: [0.0, 0.0], name: "P".into(), leave_out: vec![] };
         assert!(baseplate_commands(&p).len() < 100);
     }
 }

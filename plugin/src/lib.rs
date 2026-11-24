@@ -400,7 +400,33 @@ pub fn parse_baseplate(params: &Value) -> Result<BaseplateOptions, String> {
         half_cells: get_leftover(p)?,
         origin: get_origin(p)?,
         name: get_name(p, &format!("Gridfinity{half} baseplate{frame} {nx}x{ny}"))?,
+        leave_out: get_leave_out(p, nx, ny)?,
     })
+}
+
+/// `leave_out`: cells as "column-row", from 1 at the front left, separated by commas or spaces.
+fn get_leave_out(p: &Map<String, Value>, nx: u32, ny: u32) -> Result<Vec<[u32; 2]>, String> {
+    let text = match p.get("leave_out") {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::String(s)) => s.clone(),
+        Some(_) => return Err("leave_out must be text such as \"1-1, 3-2\"".into()),
+    };
+    let mut cells: Vec<[u32; 2]> = Vec::new();
+    for t in text.split(|c: char| c == ',' || c == ';' || c.is_whitespace()).filter(|t| !t.is_empty()) {
+        let cell = t.split_once(['-', 'x', 'X', '/']).and_then(|(c, r)| Some([c.trim().parse::<u32>().ok()?, r.trim().parse::<u32>().ok()?]))
+            .ok_or(format!("Leave out cells: \"{t}\" is not a cell; write column-row, such as 1-1 or 3-2"))?;
+        if cell[0] < 1 || cell[0] > nx || cell[1] < 1 || cell[1] > ny {
+            return Err(format!("Leave out cells: {t} is outside the plate, which is {nx} x {ny} cells"));
+        }
+        if !cells.contains(&cell) {
+            cells.push(cell);
+        }
+    }
+    if cells.len() as u32 == nx * ny {
+        return Err("Leave out cells: that leaves no cells".into());
+    }
+    cells.sort();
+    Ok(cells)
 }
 
 /// Most compartments a bin with scoops or label tabs can have in one run: each divider
@@ -1176,15 +1202,23 @@ mod guest {
         let params = apply_edits(&with_current_values(&item["params"], &item["parameters"], &list), edits);
         // check the new settings before anything is deleted
         plan("bin", &params).map_err(&invalid)?;
+        rebuild(&name, &item, params)
+    }
+
+    /// Makes stored part `name` again with `params`: its folder (sketches and features) and
+    /// parameters go first, so the new one gets its name.
+    fn rebuild(name: &str, item: &Value, params: Value) -> Result<String, PluginError> {
+        let entry = item["entry"].as_str().unwrap_or("bin");
+        let invalid = invalid_in(entry);
         let deleted = match item["folder"].as_u64() {
             Some(folder) => host("timeline.delete", json!({"groups": [folder]})),
             None => host("timeline.delete", json!({"features": item["features"]})),
-        }.map_err(|e| invalid(format!("Edit bin: could not remove the old bin: {e}")))?;
+        }.map_err(|e| invalid(format!("could not remove the old {entry}: {e}")))?;
         for n in item["parameters"].as_object().into_iter().flatten().filter_map(|(_, n)| n.as_str()) {
             let _ = host("parameters.delete", json!({"name": n}));
         }
         let failing = deleted["failing"].as_array().map_or(0, |f| f.len());
-        build("bin", params, Some(&name), failing)
+        build(entry, params, Some(name), failing)
     }
 
     /// A drawing of the drawer's pieces from above, each with its number and size in the pocket
@@ -1340,6 +1374,7 @@ mod guest {
                 "panel-refresh" => panel_refresh().map(|n| json!({"parts": n}).to_string()),
                 "panel-select" => panel_select(&params),
                 e if e.starts_with("quick-") => quick(e),
+                "layout-remove" | "layout-restore" => layout(&entry, &params),
                 _ => build(&entry, params, None, 0),
             }
         }
@@ -1374,6 +1409,18 @@ mod guest {
         Ok(rows.len())
     }
 
+    /// The parts table again, the rest of the panel as it is.
+    fn panel_refresh_rows() -> Result<(), PluginError> {
+        let rows = panel::rows(&stored_items()?);
+        let mut data = Vec::new();
+        for (i, r) in rows.iter().enumerate() {
+            for (key, v) in [("id", &r.id), ("name", &r.name), ("kind", &r.kind), ("size", &r.size), ("height", &r.height), ("label", &r.label)] {
+                data.push(text(format!("/parts/{i}/{key}"), v));
+            }
+        }
+        ui::set_data(PANEL, &data)
+    }
+
     /// A row clicked: its settings in the form below the table.
     fn panel_select(event: &Value) -> Result<String, PluginError> {
         let Some(id) = event["row"].as_str() else { return Ok("{}".into()) };
@@ -1383,6 +1430,65 @@ mod guest {
             .map(|(key, v)| text(format!("/details/{key}"), &v)).collect();
         ui::set_data(PANEL, &data)?;
         Ok(json!({"selected": id}).to_string())
+    }
+
+    /// Layout: a pick in the model, from the Remove a cell or Restore all cells field.
+    /// What it did, or why not, shows in the Result field: an error would undo that too.
+    fn layout(entry: &str, event: &Value) -> Result<String, PluginError> {
+        let said = match layout_change(entry, event) {
+            Ok(s) | Err(s) => s,
+        };
+        ui::set_data(PANEL, &[text("/layout/status".into(), &said), text("/layout/remove".into(), ""), text("/layout/restore".into(), "")])?;
+        let _ = panel_refresh_rows();
+        Ok(json!({"result": said}).to_string())
+    }
+
+    fn layout_change(entry: &str, event: &Value) -> Result<String, String> {
+        let pick: Value = event["value"]["geometry-ref"].as_str().and_then(|s| serde_json::from_str(s).ok())
+            .ok_or("Nothing picked: click the field, then a pocket of a base plate")?;
+        let body = pick["body"].as_str().or(pick["name"].as_str()).ok_or("Pick a face of a base plate")?;
+        let items = stored_items().map_err(|e| format!("{e:?}"))?;
+        let (name, item) = find_item(&items, body).ok_or(format!("{body} isn't a part Gridfinity made (1.4 or later)"))?;
+        if item["entry"] != "baseplate" {
+            return Err(format!("{} is a {}: only a base plate can leave cells out", panel::short_name(name),
+                item["entry"].as_str().unwrap_or("part").replace("drawer", "drawer baseplate")));
+        }
+        let (name, item) = (name.to_string(), item.clone());
+        let mut params = item["params"].clone();
+        let o = parse_baseplate(&params)?;
+        if entry == "layout-restore" {
+            if o.leave_out.is_empty() {
+                return Ok(format!("{} has all its cells", panel::short_name(&name)));
+            }
+            params["leave_out"] = json!("");
+            rebuild(&name, &item, params).map_err(|e| format!("{e:?}"))?;
+            return Ok(format!("{}: all cells back", panel::short_name(&name)));
+        }
+        // where the pick is: the point clicked, else the face's middle
+        let at = match pick["point"].as_array() {
+            Some(p) => [p[0].as_f64().unwrap_or(f64::NAN), p[1].as_f64().unwrap_or(f64::NAN)],
+            None => {
+                let faces = host("model.faces", json!({"body": body}))?;
+                let face = faces["faces"].as_array().into_iter().flatten().find(|f| f["index"] == pick["index"])
+                    .ok_or("that face is gone; pick again")?;
+                [face["centroid"][0].as_f64().unwrap_or(f64::NAN), face["centroid"][1].as_f64().unwrap_or(f64::NAN)]
+            }
+        };
+        let corner = geometry::baseplate_piece(&o).cells.corner;
+        let cell = [((at[0] - corner[0]) / o.pitch[0]).floor() + 1.0, ((at[1] - corner[1]) / o.pitch[1]).floor() + 1.0];
+        if !(cell[0] >= 1.0 && cell[0] <= o.nx as f64 && cell[1] >= 1.0 && cell[1] <= o.ny as f64) {
+            return Err("That is the plate's filler, not a cell: pick a pocket".into());
+        }
+        let cell = [cell[0] as u32, cell[1] as u32];
+        let mut cells = o.leave_out.clone();
+        cells.push(cell);
+        if cells.len() as u32 >= o.nx * o.ny {
+            return Err("That is the plate's last cell".into());
+        }
+        cells.sort();
+        params["leave_out"] = json!(cells.iter().map(|[c, r]| format!("{c}-{r}")).collect::<Vec<_>>().join(", "));
+        rebuild(&name, &item, params).map_err(|e| format!("{e:?}"))?;
+        Ok(format!("{}: cell {}-{} left out", panel::short_name(&name), cell[0], cell[1]))
     }
 
     /// A Quick button: its part, beside everything in the design (to the right, 10 mm apart).
@@ -1438,7 +1544,8 @@ mod guest {
                     key: st(&f["key"]),
                     label: st(&f["label"]),
                     kind: match f["kind"].as_str() { Some("number") => FieldKind::Number, Some("toggle") => FieldKind::Toggle,
-                                                     Some("choice") => FieldKind::Choice, _ => FieldKind::Text },
+                                                     Some("choice") => FieldKind::Choice, Some("selection") => FieldKind::Selection,
+                                                     _ => FieldKind::Text },
                     choices: f["choices"].as_array().into_iter().flatten().map(st).collect(),
                     on_change: opt(&f["on_change"]),
                 }).collect(),
@@ -1623,6 +1730,21 @@ mod tests {
         let mut one = d.clone();
         one["piece"] = json!(1);
         assert!(plan("drawer", &one).is_ok());
+    }
+
+    #[test]
+    fn cells_left_out_are_cut_away() {
+        let o = parse_baseplate(&json!({"width": 3, "depth": 2, "leave_out": "3-2, 1-1 1-1", "filler_left": 5})).unwrap();
+        assert_eq!(o.leave_out, vec![[1, 1], [3, 2]]);
+        let c = baseplate_commands(&o);
+        let at = c.iter().position(|v| v["params"]["name"] == "Gridfinity baseplate 3x2 Left out").unwrap();
+        // 1-1: through the filler on the left, past the plate at the front; 3-2: past the right and back
+        assert_eq!(c[at + 1]["params"], json!({"p0": [-0.5, -0.5], "p1": [47.0, 42.0]}));
+        assert_eq!(c[at + 2]["params"], json!({"p0": [89.0, 42.0], "p1": [131.5, 84.5]}));
+        assert_eq!(c.last().unwrap()["params"]["operation"], "cut");
+        assert!(parse_baseplate(&json!({"width": 2, "depth": 1, "leave_out": "3-1"})).unwrap_err().contains("outside the plate"));
+        assert!(parse_baseplate(&json!({"width": 2, "depth": 1, "leave_out": "1-1, 2-1"})).unwrap_err().contains("no cells"));
+        assert!(parse_baseplate(&json!({"leave_out": "a"})).unwrap_err().contains("not a cell"));
     }
 
     #[test]
