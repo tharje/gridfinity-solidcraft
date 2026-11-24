@@ -1,7 +1,7 @@
 {
  "id": "gridfinity",
  "name": "Gridfinity",
- "version": "1.5.0",
+ "version": "1.6.0",
  "description": "Gridfinity bins (hollow, eco or solid), baseplates, and drawer baseplates split to fit your printer or a picked drawer floor, on a full, half or custom grid. Edit bin changes a bin it made, keeping each setting left at Keep.",
  "capabilities": ["commands@0.1", "storage@0.1"],
  "runtime": {
@@ -79,6 +79,7 @@
    {
     "name": "drawer",
     "effect": "edit",
+    "job": true,
     "input_schema": {
      "type": "object",
      "required": ["drawer_width", "drawer_depth", "printer_x", "printer_y", "grid", "bottom"],
@@ -99,7 +100,7 @@
       "position_x": {"type": "number", "title": "Position X", "description": "Corner of the first piece", "default": 0, "unit": "mm"},
       "position_y": {"type": "number", "title": "Position Y", "description": "Corner of the first piece", "default": 0, "unit": "mm"},
       "title": {"type": "string", "title": "Body name", "description": "Leave empty for an automatic name", "maxLength": 60},
-      "piece": {"type": "integer", "title": "Piece (0 = all)", "description": "Build just one piece (numbered along X, then Y). Big drawers take longer than SolidCraft allows a plugin, so build them one piece at a time", "minimum": 0, "maximum": 99, "default": 0},
+      "piece": {"type": "integer", "title": "Piece (0 = all)", "description": "Build just one piece (numbered along X, then Y), for instance to make one again", "minimum": 0, "maximum": 99, "default": 0},
       "layout_sheet": {"type": "boolean", "title": "Layout sheet", "description": "Also make a drawing (A3) of the pieces from above, each with its number and size, to lay them in the drawer in order. Open it in the Drawing workspace to print it or export it as SVG or PNG. Made when all pieces are built, or with the last piece when they are built one at a time", "default": true},
       "floor": {"type": "array", "title": "Drawer floor", "description": "SolidCraft 0.44+: click the drawer's floor. The plate fills it up to the walls, less 0.5 mm, and sits on it with its pieces together. Overrides width, depth and position", "maxItems": 1, "x-solidcraft-selection": {"version": 1, "accept": ["face"]}}
      },

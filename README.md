@@ -110,7 +110,16 @@ one undo step, editable afterwards, and they keep working without the plugin.
   evenly as it can. The pieces lock together with dovetail tabs (0.15 mm clearance), which
   sit low in the wall between pockets so they don't show; the piece with the sockets goes on from
   above. Tabs and sockets lean in towards the top (0.67 mm over the tab's height), so a tab that
-  comes down a little off finds its socket by itself instead of bending its edge. Big drawers are built one piece at a time (`piece`), see *Limits* below.
+  comes down a little off finds its socket by itself instead of bending its edge.
+
+  It runs as a long job (SolidCraft 0.48): it may take up to ten minutes, shows its progress at
+  the bottom right of the view, and its red X cancels it and leaves the design as it was. So a big
+  drawer is built in one go: 600 × 500 mm with magnet holes (9 pieces) takes about a minute.
+  Pieces that are the same, as in the middle of a big drawer, are built once and copied: 1000 × 1000 mm
+  with magnet holes (25 pieces, 9 different) takes about 80 s instead of 165. Like any
+  long job its form has no preview. **Piece** builds just one piece, to make one again.
+
+  ![A drawer baseplate being built, with its progress at the bottom right](docs/images/drawer-job-progress.png)
 
   With SolidCraft 0.44 or newer you can instead click the drawer's floor in your design
   (**Drawer floor**, `floor`). The plate then gets the floor's size less 0.5 mm, centred, sits on
@@ -193,21 +202,20 @@ Dimensions follow the Gridfinity spec as implemented in gridfinity-rebuilt-opens
 ([research/SPEC.md](research/SPEC.md)). Every shape was checked by exporting STL from SolidCraft and
 measuring its cross-sections. Not yet printed: please report how it fits.
 
-> Status: 1.5.0. Needs SolidCraft 0.46.2 or newer, which older versions can't do: the form shows
-> only the fields in use, the layout sheet centres its notes, and the plugin keeps each bin's
-> settings in the design (for Edit bin).
-> Tested with SolidCraft 0.46.2 and 0.47.0 through scripts/`solidcraft-cli`, and with 0.47.0 in the
-> desktop app's plugin dialog. SolidCraft's plugin runtime is itself experimental, so other
-> versions may refuse the package. For SolidCraft 0.45, use
+> Status: 1.6.0. Needs SolidCraft 0.48 or newer: the drawer baseplate is a long job, and older
+> versions refuse a package that has one.
+> Tested with SolidCraft 0.48.1 through scripts/`solidcraft-cli` and in the desktop app's plugin
+> dialog. SolidCraft's plugin runtime is itself experimental, so other versions may refuse the
+> package. For SolidCraft 0.46.2 or 0.47, use [Gridfinity 1.5.0](../../releases/tag/v1.5.0); for 0.45, use
 > [Gridfinity 1.4.1](../../releases/tag/v1.4.1); for 0.43 or 0.44,
 > [Gridfinity 1.3.1](../../releases/tag/v1.3.1).
 
 ## Install
-Download `gridfinity-1.5.0.zip` from the [latest release](../../releases/latest), then in SolidCraft:
+Download `gridfinity-1.6.0.zip` from the [latest release](../../releases/latest), then in SolidCraft:
 **Plugins › Install plugin…** (or **Preferences › Plugins**) and pick the zip. From a script:
 
 ```json
-{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.5.0.zip"}}]}
+{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.6.0.zip"}}]}
 ```
 
 Add `"replace": true` to update an installed version. You can also unpack the zip into
@@ -264,9 +272,13 @@ it, so the number of commands stays small at any size; the time goes on joining 
 Dividers that cross each other, scoops and label tabs count in too, so a big bin with many
 compartments may need fewer dividers. Past that the plugin says so before it starts. Half cells in the filler take longer than cells: a 4 × 4
 baseplate with magnet holes and a ring of half cells around it takes about 14 s, and the plugin
-counts them in when it decides; set Leftover space to Solid to leave them out. For a bigger baseplate use the drawer baseplate and
-build it a piece at a time: set **Piece** to 1, 2, … (numbered along X, then Y) and run once for
-each. Pieces built separately land where they would have with the others.
+counts them in when it decides; set Leftover space to Solid to leave them out. For a bigger baseplate use the drawer baseplate.
+
+The drawer baseplate is a long job: SolidCraft gives it ten minutes and over a million commands.
+The plugin plans for eight minutes, so a slower computer still finishes: 1600 cells, 672 with
+magnet holes, 400 with screw holes, 320 with both. That is a 1000 × 1000 mm drawer of 42 mm cells
+without holes. Past that, build it a piece at a time: set **Piece** to 1, 2, … (numbered along X,
+then Y) and run once for each. Pieces built separately land where they would have with the others.
 
 Label text is slow: the desktop app checks every letter, about half a second each, and each
 compartment with a label tab costs about as much. Letters and digits (spaces are free) plus

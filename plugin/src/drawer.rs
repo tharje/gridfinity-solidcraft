@@ -161,9 +161,9 @@ pub fn plan(o: &DrawerOptions) -> Result<DrawerPlan, String> {
     })
 }
 
-/// Commands a plan may have: SolidCraft allows 256 host calls a run, and the plugin also makes
-/// a progress and a cancel check every 16 commands.
-pub const MAX_CALLS: usize = 256 * 16 / 18 - 2;
+/// Commands a plan may have: a drawer is a long job, which SolidCraft allows 1,048,576 host calls,
+/// and the plugin also makes a progress and a cancel check every 16 commands.
+pub const MAX_CALLS: usize = 1_048_576 * 16 / 18 - 2;
 
 /// The pieces, where they are built.
 pub fn pieces(o: &DrawerOptions, pl: &DrawerPlan) -> Vec<Piece> {
@@ -254,6 +254,32 @@ pub fn built_cells(o: &DrawerOptions, pl: &DrawerPlan) -> u32 {
     ax.pieces.get(i).copied().unwrap_or(0) * ay.pieces.get(j).copied().unwrap_or(0)
 }
 
+/// A copy of body `from`, made at `at`, as body `name`.
+fn copy(from: &str, name: &str, from_at: [f64; 2], at: [f64; 2]) -> Value {
+    cmd("solid.move", json!({"bodies": [from], "copy": true, "body_name": name,
+        "translate": [r4(at[0] - from_at[0]), r4(at[1] - from_at[1]), 0.0]}))
+}
+
+/// Whether piece `b` is piece `a` moved: built where `a` is, it gets the same commands.
+fn same_piece(a: &Piece, b: &Piece) -> bool {
+    // quick no first: most pieces differ in these
+    if (a.cells.nx, a.cells.ny, a.filler, a.round, a.tabs, a.sockets) != (b.cells.nx, b.cells.ny, b.filler, b.round, b.tabs, b.sockets) {
+        return false;
+    }
+    let shift = [a.cells.corner[0] - b.cells.corner[0], a.cells.corner[1] - b.cells.corner[1]];
+    let moved = Piece {
+        name: a.name.clone(),
+        cells: Block { corner: a.cells.corner, ..b.cells },
+        grid_origin: [b.grid_origin[0] + shift[0], b.grid_origin[1] + shift[1]],
+        make_cell: true,
+        ..b.clone()
+    };
+    let (mut x, mut y) = (Vec::new(), Vec::new());
+    piece_commands(&mut x, &Piece { make_cell: true, ..a.clone() });
+    piece_commands(&mut y, &moved);
+    x == y
+}
+
 /// Commands for every piece, and the plan they follow.
 pub fn drawer_commands(o: &DrawerOptions) -> Result<(DrawerPlan, Vec<Value>), String> {
     let pl = plan(o)?;
@@ -269,21 +295,32 @@ pub fn drawer_commands(o: &DrawerOptions) -> Result<(DrawerPlan, Vec<Value>), St
         piece_commands(&mut out, &p);
         return Ok((pl, out));
     }
-    // one cell, copied to the start of every other piece before any of them grows
-    first_cell(&mut out, &all[0]);
-    let c0 = all[0].cells.corner;
-    for p in &all[1..] {
-        let c = p.cells.corner;
-        out.push(cmd("solid.move", json!({"bodies": [all[0].name], "copy": true, "body_name": p.name,
-            "translate": [r4(c[0] - c0[0]), r4(c[1] - c0[1]), 0.0]})));
+    // A piece the same as one before it is a copy of that one, made once it is built: a copy
+    // is one command, a piece twenty or more. Big drawers have many such pieces in the middle.
+    let mut copy_of: Vec<Option<usize>> = Vec::new();
+    for j in 0..all.len() {
+        let from = (0..j).find(|&i| copy_of[i].is_none() && same_piece(&all[i], &all[j]));
+        copy_of.push(from);
+    }
+    let built: Vec<&Piece> = all.iter().zip(&copy_of).filter(|(_, c)| c.is_none()).map(|(p, _)| p).collect();
+    // one cell, copied to the start of every other piece built before any of them grows
+    first_cell(&mut out, built[0]);
+    let c0 = built[0].cells.corner;
+    for p in &built[1..] {
+        out.push(copy(&built[0].name, &p.name, c0, p.cells.corner));
     }
     let mut seeds = Seeds::counting(&o.name);
-    for p in &all {
+    for p in &built {
         piece_commands_seeded(&mut Vec::new(), p, &mut seeds);
     }
     let mut seeds = seeds.ready();
-    for p in &all {
+    for p in &built {
         piece_commands_seeded(&mut out, p, &mut seeds);
+    }
+    for (p, from) in all.iter().zip(&copy_of) {
+        if let Some(&i) = from.as_ref() {
+            out.push(copy(&all[i].name, &p.name, all[i].cells.corner, p.cells.corner));
+        }
     }
     if out.len() > MAX_CALLS {
         let (kx, ky) = (pl.axes[0].pieces.len(), pl.axes[1].pieces.len());
@@ -472,9 +509,16 @@ mod more_tests {
     }
 
     #[test]
-    fn too_many_pieces_is_refused_in_words() {
+    fn many_pieces_fit_in_one_long_job() {
         let o = DrawerOptions { drawer: [1000.0, 1000.0], bed: [100.0, 100.0], pitch: [PITCH; 2], filler: [Filler::Even; 2], half_cells: false,
                                 open: false, magnets: false, screws: false, origin: [0.0, 0.0], gap: LAYOUT_GAP, name: "D".into(), piece: 0 };
-        assert!(drawer_commands(&o).unwrap_err().contains("pieces"));
+        let (pl, c) = drawer_commands(&o).unwrap();
+        assert_eq!(pl.axes[0].pieces.len() * pl.axes[1].pieces.len(), 169);
+        assert!(c.len() <= MAX_CALLS, "{} calls", c.len());
+        // 16 kinds of piece (corners, edges and middle, 1 or 2 cells a side) are built; the rest
+        // are copies of them
+        let copies = c.iter().rev().take_while(|v| v["command"] == "solid.move" && v["params"]["copy"] == true).count();
+        assert_eq!(copies, 169 - 16);
     }
 }
+

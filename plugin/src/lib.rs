@@ -445,22 +445,28 @@ const SCOOP_WEIGHT: f64 = 1.0;
 const MAX_HALF_CELLS_RUN: u32 = 70;
 const MAX_HALF_CELLS_RUN_DRAWER: u32 = 50;
 
-/// `holes`: magnet holes, screw holes.
-fn check_time(cells: u32, (half, max_half): (u32, u32), holes: (bool, bool), what: &str) -> Result<(), String> {
+/// A drawer is a long job (SolidCraft 0.48+): it may run ten minutes instead of 30 s. It plans
+/// for eight, so a slower computer still finishes: 16 times what fits in 30 s.
+const JOB_RUNS: u32 = 16;
+
+/// `holes`: magnet holes, screw holes. `job`: the run is a long job.
+fn check_time(cells: u32, (half, max_half): (u32, u32), holes: (bool, bool), job: bool, what: &str) -> Result<(), String> {
+    let (k, limit) = if job { (JOB_RUNS, "ten minutes") } else { (1, "30 seconds") };
     let (max, with) = match holes {
         (true, true) => (MAX_CELLS_RUN_BOTH, " with magnet and screw holes"),
         (true, false) => (MAX_CELLS_RUN_MAGNETS, " with magnet holes"),
         (false, true) => (MAX_CELLS_RUN_SCREWS, " with screw holes"),
         (false, false) => (MAX_CELLS_RUN, ""),
     };
+    let (max, max_half) = (max * k, max_half * k);
     if half == 0 && cells > max {
         return Err(format!(
-            "{cells} cells is too many for one run: SolidCraft gives a plugin 30 seconds, which is about {max} cells{with}. {what}"
+            "{cells} cells is too many for one run: SolidCraft gives a plugin {limit}, which is about {max} cells{with}. {what}"
         ));
     }
     if half > 0 && cells as f64 / max as f64 + half as f64 / max_half as f64 > 1.0 {
         return Err(format!(
-            "{cells} cells{with} and {half} half cells is too much for one run: SolidCraft gives a plugin 30 seconds, and half \
+            "{cells} cells{with} and {half} half cells is too much for one run: SolidCraft gives a plugin {limit}, and half \
              cells take longer than cells. Set Leftover space to Solid, or: {what}"
         ));
     }
@@ -1010,7 +1016,7 @@ pub fn plan(entry: &str, params: &Value) -> Result<(String, Vec<Value>), String>
         "baseplate" => {
             let o = parse_baseplate(params)?;
             let half = plate::half_cell_count(&geometry::baseplate_piece(&o));
-            check_time(o.nx * o.ny, (half, MAX_HALF_CELLS_RUN), (o.magnets && !o.open, o.screws && !o.open),
+            check_time(o.nx * o.ny, (half, MAX_HALF_CELLS_RUN), (o.magnets && !o.open, o.screws && !o.open), false,
                 "Use Gridfinity drawer baseplate, which splits it into pieces and can build them one at a time.")?;
             Ok((o.name.clone(), baseplate_commands(&o)))
         }
@@ -1020,7 +1026,7 @@ pub fn plan(entry: &str, params: &Value) -> Result<(String, Vec<Value>), String>
             let count = pl.axes[0].pieces.len() * pl.axes[1].pieces.len();
             let built = drawer::built_cells(&o, &pl);
             let half = drawer::built_half_cells(&o, &pl);
-            check_time(built, (half, MAX_HALF_CELLS_RUN_DRAWER), (o.magnets && !o.open, o.screws && !o.open), &if o.piece == 0 {
+            check_time(built, (half, MAX_HALF_CELLS_RUN_DRAWER), (o.magnets && !o.open, o.screws && !o.open), true, &if o.piece == 0 {
                 format!("This drawer is {count} pieces: set Piece to 1, 2, ... {count} and run once for each.")
             } else {
                 "Use a smaller printer size, so the pieces get smaller.".to_string()
@@ -1268,7 +1274,7 @@ mod guest {
                 if control::cancelled() {
                     return Err(PluginError::Cancelled);
                 }
-                control::progress(i as f32 / total as f32, &format!("Gridfinity: step {} of {total}", i + 1));
+                control::progress(i as f32 / total as f32, &format!("step {} of {total}", i + 1));
             }
             let (name, args) = run.prepare(c);
             let reply = run_cmd(&name, &args.to_string())?;
@@ -1461,10 +1467,13 @@ mod tests {
         assert!(plan("bin", &scooped).is_ok());
         let e = plan("bin", &json!({"width": 6, "depth": 6, "dividers_x": 5, "dividers_y": 5, "inside_scoop": 10})).unwrap_err();
         assert!(e.contains("6 x 6 compartments with a scoop"), "{e}");
-        // a big drawer: all at once is too much, but it says how to build it piece by piece
-        let d = json!({"drawer_width": 600, "drawer_depth": 500, "holes_magnet": true});
+        // a drawer is a long job: a big one is built in one run
+        assert!(plan("drawer", &json!({"drawer_width": 600, "drawer_depth": 500, "holes_magnet": true})).is_ok());
+        assert!(plan("drawer", &json!({"drawer_width": 1000, "drawer_depth": 1000})).is_ok());
+        // too big even for ten minutes: it says how to build it piece by piece
+        let d = json!({"drawer_width": 1000, "drawer_depth": 1000, "grid": "21 mm (half)", "holes_magnet": true});
         let e = plan("drawer", &d).unwrap_err();
-        assert!(e.contains("set Piece to 1, 2"), "{e}");
+        assert!(e.contains("ten minutes") && e.contains("set Piece to 1, 2"), "{e}");
         let mut one = d.clone();
         one["piece"] = json!(1);
         assert!(plan("drawer", &one).is_ok());
@@ -1502,9 +1511,10 @@ mod tests {
         assert!(plan("baseplate", &ring(8, false)).is_err());
         assert!(plan("drawer", &json!({"drawer_width": 400, "drawer_depth": 300})).is_ok());
         assert!(plan("drawer", &json!({"drawer_width": 400, "drawer_depth": 340})).is_ok());
-        let e = plan("drawer", &json!({"drawer_width": 450, "drawer_depth": 380})).unwrap_err();
-        assert!(e.contains("9 half cells") && e.contains("Leftover space to Solid") && e.contains("set Piece to 1, 2"), "{e}");
-        assert!(plan("drawer", &json!({"drawer_width": 450, "drawer_depth": 380, "leftover": "Solid"})).is_ok());
+        assert!(plan("drawer", &json!({"drawer_width": 450, "drawer_depth": 380})).is_ok());
+        let both = json!({"drawer_width": 1000, "drawer_depth": 1000, "holes_magnet": true, "holes_screw": true});
+        let e = plan("drawer", &both).unwrap_err();
+        assert!(e.contains("half cells") && e.contains("Leftover space to Solid") && e.contains("set Piece to 1, 2"), "{e}");
         // a custom grid keeps its filler solid
         let mut custom = p.clone();
         custom["grid"] = json!("Custom");
