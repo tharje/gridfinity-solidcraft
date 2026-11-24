@@ -224,7 +224,46 @@ pub fn pieces(o: &DrawerOptions, pl: &DrawerPlan) -> Vec<Piece> {
         add_left_out(o, pl, &mut v, &cx0, &cy0);
         add_trims(o, pl, &mut v, &cx0, &cy0);
     }
+    if !o.outline.is_empty() {
+        add_filler_cuts(o, &mut v);
+    }
     v
+}
+
+/// On a floor that isn't a rectangle: the plate's own filler along its outer edges, a cell's
+/// length at a time (and the corners), is cut away where it isn't on the floor, the clearance in
+/// from its edge (a rounded corner of the drawer, say).
+fn add_filler_cuts(o: &DrawerOptions, v: &mut [Piece]) {
+    let c = FLOOR_FILL_CLEARANCE - 0.01;
+    for p in v.iter_mut() {
+        let Block { corner: [x0, y0], nx, ny, pitch: [px, py] } = p.cells;
+        let (x1, y1) = (x0 + px * nx as f64, y0 + py * ny as f64);
+        let [fl, fr, ff, fb] = p.filler;
+        // [x0, y0, x1, y1], and which sides are the plate's edge: left, right, front, back
+        let mut segs: Vec<([f64; 4], [bool; 4])> = Vec::new();
+        for k in 0..ny {
+            let y = y0 + py * k as f64;
+            if fl > 1e-6 { segs.push(([x0 - fl, y, x0, y + py], [true, false, false, false])); }
+            if fr > 1e-6 { segs.push(([x1, y, x1 + fr, y + py], [false, true, false, false])); }
+        }
+        for k in 0..nx {
+            let x = x0 + px * k as f64;
+            if ff > 1e-6 { segs.push(([x, y0 - ff, x + px, y0], [false, false, true, false])); }
+            if fb > 1e-6 { segs.push(([x, y1, x + px, y1 + fb], [false, false, false, true])); }
+        }
+        if fl > 1e-6 && ff > 1e-6 { segs.push(([x0 - fl, y0 - ff, x0, y0], [true, false, true, false])); }
+        if fr > 1e-6 && ff > 1e-6 { segs.push(([x1, y0 - ff, x1 + fr, y0], [false, true, true, false])); }
+        if fl > 1e-6 && fb > 1e-6 { segs.push(([x0 - fl, y1, x0, y1 + fb], [true, false, false, true])); }
+        if fr > 1e-6 && fb > 1e-6 { segs.push(([x1, y1, x1 + fr, y1 + fb], [false, true, false, true])); }
+        for (r, edge) in segs {
+            let out = |side: usize, k: f64| if edge[side] { k } else { -0.01 };
+            let test = [r[0] - out(0, c), r[1] - out(2, c), r[2] + out(1, c), r[3] + out(3, c)];
+            if !on_floor(test, &o.outline) {
+                let grow = |side: usize| if edge[side] { 0.5 } else { 0.0 };
+                p.cuts.push([r[0] - grow(0), r[1] - grow(2), r[2] + grow(1), r[3] + grow(3)]);
+            }
+        }
+    }
 }
 
 /// On a floor that isn't a rectangle: a kept cell beside a notch that comes closer to the floor's
@@ -334,6 +373,50 @@ fn add_left_out(o: &DrawerOptions, pl: &DrawerPlan, v: &mut [Piece], cx0: &[u32]
             front.cuts.push([xa, y1 - 0.01, xa + px, y1 + seam]);
         }
     }
+}
+
+/// An edge seen from above, by its start, middle and end points (as `model.edges` gives them),
+/// as points along it: two for a straight edge, and for an arc or a circle (start and end the
+/// same) points every few degrees round the circle through the three.
+pub fn edge_points(start: [f64; 2], mid: [f64; 2], end: [f64; 2]) -> Vec<[f64; 2]> {
+    let d = |a: [f64; 2], b: [f64; 2]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+    let closed = d(start, end) < 1e-6;
+    // the circle through the three points (or start and mid across it, when closed)
+    let (centre, r) = if closed {
+        ([(start[0] + mid[0]) / 2.0, (start[1] + mid[1]) / 2.0], d(start, mid) / 2.0)
+    } else {
+        let (ax, ay, bx, by, cx, cy) = (start[0], start[1], mid[0], mid[1], end[0], end[1]);
+        let den = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+        if den.abs() < 1e-9 * (1.0 + d(start, end).powi(2)) {
+            return vec![start, end];
+        }
+        let sq = |x: f64, y: f64| x * x + y * y;
+        let ux = (sq(ax, ay) * (by - cy) + sq(bx, by) * (cy - ay) + sq(cx, cy) * (ay - by)) / den;
+        let uy = (sq(ax, ay) * (cx - bx) + sq(bx, by) * (ax - cx) + sq(cx, cy) * (bx - ax)) / den;
+        let r = d([ux, uy], start);
+        // a mid point on the line (within a hundredth of a mm): straight
+        if r > 1e6 {
+            return vec![start, end];
+        }
+        ([ux, uy], r)
+    };
+    let ang = |p: [f64; 2]| (p[1] - centre[1]).atan2(p[0] - centre[0]);
+    let tau = std::f64::consts::TAU;
+    let (a0, am) = (ang(start), ang(mid));
+    let norm = |a: f64| a.rem_euclid(tau);
+    // the sweep from start through mid to end, counter-clockwise if mid is that way
+    let sweep = if closed {
+        tau
+    } else {
+        let (to_mid, to_end) = (norm(am - a0), norm(ang(end) - a0));
+        if to_mid <= to_end { to_end } else { to_end - tau }
+    };
+    let dir = if closed && norm(am - a0) > std::f64::consts::PI + 1e-9 { -1.0 } else { 1.0 };
+    let n = ((sweep.abs() / (5f64).to_radians()).ceil() as usize).max(2);
+    (0..=n).map(|k| {
+        let a = a0 + dir * sweep * k as f64 / n as f64;
+        if k == n && !closed { end } else { [centre[0] + r * a.cos(), centre[1] + r * a.sin()] }
+    }).collect()
 }
 
 /// Whether point `p` is inside the outline (its edges as segments), by counting crossings.
@@ -896,6 +979,22 @@ mod more_tests {
         let strips = floor_fill(&o, &pl, FLOOR_FILL_CLEARANCE);
         eprintln!("{strips:?}");
         assert!(!strips.is_empty());
+    }
+
+    #[test]
+    fn arcs_and_circles_become_points_round_them() {
+        assert_eq!(edge_points([0.0, 0.0], [5.0, 0.0], [10.0, 0.0]), vec![[0.0, 0.0], [10.0, 0.0]]);
+        // a whole circle of radius 30 about (150, 125), as SolidCraft gives it
+        let c = edge_points([180.0, 125.0], [120.0, 125.0], [180.0, 125.0]);
+        assert!(c.len() > 60);
+        assert!(c.iter().all(|p| ((p[0] - 150.0).powi(2) + (p[1] - 125.0).powi(2)).sqrt() - 30.0 < 1e-9));
+        // a quarter circle from (10, 0) to (0, 10) about the origin
+        let q = edge_points([10.0, 0.0], [10.0 * 0.5f64.sqrt(), 10.0 * 0.5f64.sqrt()], [0.0, 10.0]);
+        assert_eq!((q[0], *q.last().unwrap()), ([10.0, 0.0], [0.0, 10.0]));
+        assert!(q.len() >= 18 && q.len() < 25);
+        // the same quarter the other way round
+        let back = edge_points([0.0, 10.0], [10.0 * 0.5f64.sqrt(), 10.0 * 0.5f64.sqrt()], [10.0, 0.0]);
+        assert!(back.iter().all(|p| p[0] >= -1e-9 && p[1] >= -1e-9));
     }
 
     #[test]

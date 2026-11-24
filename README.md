@@ -136,13 +136,17 @@ one undo step, editable afterwards, and they keep working without the plugin.
   the floor, and its pieces lie together as they will in the drawer (otherwise they are laid out
   10 mm apart). Width, depth and position are not used then. The floor must be flat and face up.
 
-  A floor that isn't a rectangle (an L or a U, say) works too: every cell that isn't wholly on the
+  A floor that isn't a rectangle (an L or a U, a cut-off or rounded corner, a hole for a pipe)
+  works too: every cell that isn't wholly on the
   floor, 0.25 mm in from its edges, is left out (**Leave out cells**, `leave_out`, which you can
   also fill in yourself), and a piece with no cells left isn't made. Beside the cells kept, the
   floor left over in a cell left out is filled up to 0.25 mm from its edge, as the plate's own
   filler is: with half cells where 21 mm or more fits (42 mm grid, Leftover space Half cells), the
   rest solid. A cell (or half cell) up to 0.3 mm short of that is kept, and the plate's edge there
-  is cut back to 0.25 mm from the floor's: two half cells never stand where a whole cell fits. The floor's outline is kept with the plate's settings (`floor_outline`).
+  is cut back to 0.25 mm from the floor's: two half cells never stand where a whole cell fits. The
+  plate's own filler along its outer edges is checked the same way, a cell's length at a time, so
+  it stops short of a rounded corner. What is made is rectangles, so along a slanted or curved edge
+  the plate steps, and some floor shows. The floor's outline is kept with the plate's settings (`floor_outline`).
 
   ![A drawer plate on a U-shaped floor](docs/images/drawer-u-floor.png)
 

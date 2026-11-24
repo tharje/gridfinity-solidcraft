@@ -616,8 +616,9 @@ pub fn parse_drawer(params: &Value) -> Result<DrawerOptions, String> {
         magnets,
         screws,
         origin: get_origin(p)?,
-        // in a picked drawer the pieces lie together, as they will in the drawer
-        gap: if picked_floor(params).is_some() { 0.0 } else { LAYOUT_GAP },
+        // in a picked drawer (or one made again from its outline) the pieces lie together, as
+        // they will in the drawer
+        gap: if picked_floor(params).is_some() || p.get("floor_outline").is_some_and(|v| v.is_array()) { 0.0 } else { LAYOUT_GAP },
         name: get_name(p, &format!("Gridfinity{half} drawer {}x{}", drawer[0], drawer[1]))?,
         piece,
         leave_out: get_leave_out(p, u32::MAX, u32::MAX)?,
@@ -1124,12 +1125,8 @@ mod guest {
                 continue;
             }
             let xy = |k: &str| [e[k][0].as_f64().unwrap_or(0.0), e[k][1].as_f64().unwrap_or(0.0)];
-            if e["mid"].is_array() {
-                outline.push([xy("start"), xy("mid")]);
-                outline.push([xy("mid"), xy("end")]);
-            } else {
-                outline.push([xy("start"), xy("end")]);
-            }
+            let pts = if e["mid"].is_array() { drawer::edge_points(xy("start"), xy("mid"), xy("end")) } else { vec![xy("start"), xy("end")] };
+            outline.extend(pts.windows(2).map(|w| [w[0], w[1]]));
             for k in ["start", "end", "mid"] {
                 for i in 0..2 {
                     let v = e[k][i].as_f64().unwrap_or(0.0);
