@@ -237,10 +237,11 @@ Dimensions follow the Gridfinity spec as implemented in gridfinity-rebuilt-opens
 ([research/SPEC.md](research/SPEC.md)). Every shape was checked by exporting STL from SolidCraft and
 measuring its cross-sections. Not yet printed: please report how it fits.
 
-> Status: 1.6.1. Needs SolidCraft 0.48 or newer: the drawer baseplate is a long job and the plugin
-> docks a panel, and older versions refuse a package with either.
-> Tested with SolidCraft 0.48.1 through scripts/`solidcraft-cli` and in the desktop app's plugin
-> dialog. SolidCraft's plugin runtime is itself experimental, so other versions may refuse the
+> Status: 1.6.1. Needs SolidCraft 0.49.1 or newer: from 0.49.1 a dialog can show its fields in the
+> order the plugin gives them. 0.48 still runs it, but with the fields in alphabetical order. Use
+> 0.50.0 if you can: 0.49 joins the cells slowly, and big bins or plates can hit the time limit.
+> Tested with SolidCraft 0.49.1 and 0.50.0 through scripts/`solidcraft-cli` and in the desktop app's
+> plugin dialog. SolidCraft's plugin runtime is itself experimental, so other versions may refuse the
 > package. For SolidCraft 0.46.2 or 0.47, use [Gridfinity 1.5.0](../../releases/tag/v1.5.0); for 0.45, use
 > [Gridfinity 1.4.1](../../releases/tag/v1.4.1); for 0.43 or 0.44,
 > [Gridfinity 1.3.1](../../releases/tag/v1.3.1).
@@ -369,7 +370,7 @@ run an entry with that hash ([examples/](examples/)).
 | `edit` | `bin` (one picked body: `[{"type": "body", "name": "<bin's name>"}]`), and what to change: `cells_x` (width), `cells_y` (depth), `height` (0: keep; `width` and `depth` work too), `dividers_x`, `dividers_y` (-1: keep), `inside_scoop` ("Keep" / "None" / "Auto" / "Custom"), `inside_scoop_radius` mm (0: keep; Custom only), `inside_label_tab_width` mm (0: keep; not with Label tab "None"), `inside` ("Keep" or as on `bin`), `holes_magnet`, `magnet_diameter`, `magnet_depth` mm (0: keep), `holes_screw`, `stacking_lip`, `inside_label_tab` ("Keep" / "None" / "For sticker" / "Printed text"), `inside_label_text` (empty: keep, `-`: none; new text on a tab For sticker makes it Printed text; the text fields show with Keep and Printed text), `inside_label_text_style` ("Keep" or as on `bin`), `inside_label_text_size` mm (-1: keep), `inside_label_text_height` mm (0: keep), `inside_label_text_font` (empty: keep, `-`: built-in) |
 | `drawer` | `drawer_width`, `drawer_depth` 15–1000 mm (300), `printer_x`, `printer_y` 50–1000 mm (256), `grid`, `custom_size_x`, `custom_size_y`, `bottom`, `holes_magnet`, `magnet_diameter`, `magnet_depth`, `holes_screw`, `filler_x` "Even (both sides)" / "Left" / "Right", `filler_y` "Even (both sides)" / "Front" / "Back", `leftover` "Half cells" / "Solid", `piece` (0: all), `leave_out` ("", cells across the drawer as column-row), `position_x`, `position_y` mm (0), `title`, `layout_sheet` (true), `floor` (SolidCraft 0.44+: one picked face, e.g. `[{"type": "face", "body": "Drawer", "index": 10}]`; sets the size and position) |
 
-SolidCraft checks a script's settings against the forms, so use the names and choices above, and give a `baseplate` its `grid`, `width`, `depth` and `bottom`, and a `drawer` its `drawer_width`, `drawer_depth`, `printer_x`, `printer_y`, `grid` and `bottom`. The older short forms (`"full"`, `"half"`, `"custom"`, `"open"`, and the names `magnets`, `screws`, `name` and `origin: [x, y]`) are no longer accepted from scripts; parts made with them can still be edited.
+SolidCraft checks a script's settings against the forms, so use the names and choices above. A setting left out takes its default. The older short forms (`"full"`, `"half"`, `"custom"`, `"open"`, and the names `magnets`, `screws`, `name` and `origin: [x, y]`) are no longer accepted from scripts; parts made with them can still be edited.
 
 Choices that differ slightly from the spec: the stacking lip has a 0.3 mm flat on top instead of a
 knife edge, the floor inside a bin is at 6 mm (5.55 mm in an eco bin), and baseplate pockets keep a 0.05 mm rim between
