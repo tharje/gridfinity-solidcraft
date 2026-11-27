@@ -38,8 +38,7 @@ one undo step, editable afterwards, and they keep working without the plugin.
   are made 2.6 mm thick, flush with the lip. The side walls, and the back wall behind printed text,
   stay as they are: a 1×2×4 bin with a scoop and a tab for a sticker takes 33.6 cm³ instead of
   31.0 (38.3 with all walls at 2.6 mm).
-- **Edit bin** (SolidCraft 0.45): click a bin and change some of its settings; the rest stay as
-  they were (see [Edit bin](#edit-bin)).
+- **Edit bin**: click a bin, and the dialog shows its settings to change (see [Edit bin](#edit-bin)).
 - **Layout sheet** (SolidCraft 0.46.2): a drawer baseplate comes with a drawing of its pieces, each
   numbered and with its size, to print or export (see the drawer baseplate below).
 - **Label text** (`inside_label_text`): text on the label tabs, one label per compartment
@@ -276,8 +275,9 @@ the History bar, in one folder named like the body (open the folder to edit a si
 ![A bin on a custom 40 × 25 mm grid in SolidCraft after Run](docs/images/gui-custom-bin.png)
 
 ### Edit bin
-**Edit bin** changes a bin the plugin made. Press it, click the bin, and change only what should
-change: every field starts at **Keep** (0 or -1 for numbers), which keeps the bin's own value. Run
+**Edit bin** changes a bin the plugin made. Press it and click the bin: the fields fill in with the
+bin's own size and settings, so change only what should change. A field you have changed is not
+filled in again. In a script, a field left out or at **Keep** (0 or -1 for numbers) keeps the bin's own value. Run
 removes the old bin (its folder in the History bar and its parameters) and makes it again in the same
 place, with the same name, or the new automatic name with the new size. A height or label text
 changed in **Parameters** since is kept too. Label text: leave it empty to keep the texts, or type
@@ -287,7 +287,7 @@ removed. It works on bins made with Gridfinity 1.4 or newer; an older bin has no
 make it again with **Bin**. Features you added to the bin afterwards (a fillet, a move) used the old
 bin, so they fail after an edit.
 
-| Edit bin, with the preview of the labels made flush | A bin made one cell wider with Edit bin |
+| Edit bin, filled in with the picked bin's settings | A bin made one cell wider with Edit bin |
 |---|---|
 | ![Edit bin dialog](docs/images/dialog-edit.png) | ![The edited bin](docs/images/gui-edit.png) |
 

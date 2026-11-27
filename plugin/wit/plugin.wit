@@ -390,4 +390,5 @@ world gridfinity {
     import ui;
     export entry;
     export ui-provider;
+    export dialog-provider;
 }

@@ -1008,6 +1008,36 @@ pub fn apply_edits(params: &Value, edits: &Value) -> Value {
 /// The value an `edit` field has when it keeps what the bin has.
 pub const KEEP: &str = "Keep";
 
+/// The `edit` fields as they are before a bin is picked: every one keeps what the bin has.
+pub fn edit_keep_fields() -> Value {
+    json!({"cells_x": 0, "cells_y": 0, "height": 0, "dividers_x": -1, "dividers_y": -1, "inside": KEEP,
+           "inside_scoop": KEEP, "inside_scoop_radius": 0, "inside_label_tab": KEEP, "inside_label_tab_width": 0,
+           "inside_label_text": "", "inside_label_text_style": KEEP, "inside_label_text_size": -1,
+           "inside_label_text_height": 0, "inside_label_text_font": "", "holes_magnet": KEEP, "magnet_diameter": 0,
+           "magnet_depth": 0, "holes_screw": KEEP, "stacking_lip": KEEP})
+}
+
+/// The `edit` fields filled in with what a bin has (#20), so the dialog shows its size and
+/// settings. Given back to `apply_edits` unchanged, they make the same bin.
+pub fn edit_fields(params: &Value) -> Result<Value, String> {
+    let o = parse_bin(params)?;
+    let yes_no = |b: bool| if b { "Yes" } else { "No" };
+    Ok(json!({
+        "cells_x": o.nx, "cells_y": o.ny, "height": o.units, "dividers_x": o.div_x, "dividers_y": o.div_y,
+        "inside": if o.solid { "Solid (for custom cutouts)" } else if o.eco { "Eco (thin walls, hollow feet)" } else { "Hollow" },
+        "inside_scoop": if o.scoop_auto { "Auto" } else if o.scoop > 0.0 { "Custom" } else { "None" },
+        "inside_scoop_radius": o.scoop,
+        "inside_label_tab": if !o.label { "None" } else if o.sticker { "For sticker" } else { "Printed text" },
+        "inside_label_tab_width": o.label_w,
+        "inside_label_text": o.label_text.join("; "),
+        "inside_label_text_style": if o.flush { "Flush (inlaid)" } else { "Raised" },
+        "inside_label_text_size": o.text_size, "inside_label_text_height": o.text_height,
+        "inside_label_text_font": o.font,
+        "holes_magnet": yes_no(o.magnets), "magnet_diameter": o.magnet[0], "magnet_depth": o.magnet[1],
+        "holes_screw": yes_no(o.screws), "stacking_lip": yes_no(o.lip),
+    }))
+}
+
 /// `sketch.pattern.rectangular`'s arguments for an `@pattern` step over the curves `ids`.
 pub fn pattern_args(p: &Value, ids: &[Value]) -> Value {
     let (n1, n2) = (p["count"].as_u64().unwrap_or(1), p["count2"].as_u64().unwrap_or(1));
@@ -1096,6 +1126,7 @@ mod guest {
         PanelSpec, SelectionMode, SplitSpec, Tab, TableSpec, UiEvent, Widget};
     use bindings::exports::craft::plugin::entry::Guest;
     use bindings::exports::craft::plugin::ui_provider::Guest as UiGuest;
+    use bindings::exports::craft::plugin::dialog_provider::Guest as DialogGuest;
 
     struct Gridfinity;
 
@@ -1230,6 +1261,37 @@ mod guest {
         // check the new settings before anything is deleted
         plan("bin", &params).map_err(&invalid)?;
         rebuild(&name, &item, params)
+    }
+
+    /// The Edit bin dialog's fields for what is picked (#20): the picked bin's own settings, or
+    /// Keep in every field with a note when the design has none for it.
+    fn edit_dialog(values: &Value) -> Value {
+        let keep = |hint: Option<String>| {
+            let mut r: Map<String, Value> = edit_keep_fields().as_object().into_iter().flatten()
+                .map(|(k, v)| (k.clone(), json!({"value": v}))).collect();
+            if let Some(h) = hint {
+                r.insert("bin".into(), json!({"hint": h}));
+            }
+            Value::Object(r)
+        };
+        let Some(picked) = values["bin"].get(0).and_then(|b| b["name"].as_str().or(b["body"].as_str()).or(b.as_str())) else {
+            return keep(None);
+        };
+        let Ok(stored) = host("storage.get", json!({})) else { return keep(None) };
+        let item = match find_item(&stored["document"]["items"], picked) {
+            Some((_, item)) if item["entry"].as_str() == Some("bin") => item,
+            Some(_) => return keep(Some("This is not a bin.".into())),
+            None => return keep(Some("No settings stored for this body: the fields keep what it has.".into())),
+        };
+        let list = host("parameters.list", json!({"filter": "user"})).ok()
+            .and_then(|l| l["parameters"].as_array().cloned()).unwrap_or_default();
+        match edit_fields(&with_current_values(&item["params"], &item["parameters"], &list)) {
+            Ok(fields) => {
+                Value::Object(fields.as_object().into_iter().flatten()
+                    .map(|(k, v)| (k.clone(), json!({"value": v}))).collect())
+            }
+            Err(e) => keep(Some(e)),
+        }
     }
 
     /// Makes stored part `name` again with `params`: its folder (sketches and features) and
@@ -1657,6 +1719,16 @@ mod guest {
 
         fn on_exit(_workspace: String) -> Result<(), PluginError> {
             Ok(())
+        }
+    }
+
+    impl DialogGuest for Gridfinity {
+        fn update_fields(entry: String, values: String) -> Result<String, PluginError> {
+            let values: Value = serde_json::from_str(&values).unwrap_or(Value::Null);
+            Ok(match entry.as_str() {
+                "edit" => edit_dialog(&values),
+                _ => json!({}),
+            }.to_string())
         }
     }
 
@@ -2221,6 +2293,37 @@ mod tests {
         assert_eq!(apply_edits(&stored, &json!({"magnet_diameter": 0, "magnet_depth": 0})), stored);
         let e = apply_edits(&stored, &json!({"magnet_diameter": 6.2, "magnet_depth": 2.2}));
         assert_eq!((e["magnet_diameter"].as_f64(), e["magnet_depth"].as_f64()), (Some(6.2), Some(2.2)));
+    }
+
+    #[test]
+    fn edit_dialog_shows_the_bins_settings_and_they_make_the_same_bin() {
+        // #20: the fields show the picked bin's settings; applied as they are, nothing changes
+        for stored in [
+            json!({"width": 3, "depth": 2, "height": 6, "holes_magnet": true, "dividers_x": 2, "inside_label_tab": "Printed text",
+                   "inside_label_text": "A; B; C", "inside_scoop": "Custom", "inside_scoop_radius": 12}),
+            json!({"grid": "21 mm (half)", "width": 5, "inside": "Eco (thin walls, hollow feet)", "stacking_lip": false,
+                   "inside_scoop": "Auto", "inside_label_tab": "For sticker", "inside_label_tab_width": 20}),
+            json!({"inside": "Solid (for custom cutouts)", "holes_screw": true, "magnet_diameter": 6.2}),
+            json!({"width": 2, "inside_label_tab": true, "inside_label_text": "M3", "inside_label_text_size": 5, "inside_label_text_style": "Flush (inlaid)", "inside_label_text_font": "DejaVu Sans"}),
+            // as before 1.5: a scoop radius as a number
+            json!({"width": 2, "inside_scoop": 8}),
+            json!({}),
+        ] {
+            let fields = edit_fields(&stored).unwrap();
+            assert_eq!(plan("bin", &apply_edits(&stored, &fields)), plan("bin", &stored), "{stored}");
+            // every field is one the form has, with a value it takes
+            let keep = edit_keep_fields();
+            for (k, v) in fields.as_object().unwrap() {
+                assert!(keep.get(k).is_some(), "{k}");
+                assert_eq!(v.is_string(), keep[k].is_string(), "{k}");
+            }
+        }
+        let f = edit_fields(&json!({"width": 3, "depth": 2, "height": 6, "inside_scoop": 8})).unwrap();
+        assert_eq!((f["cells_x"].as_u64(), f["cells_y"].as_u64(), f["height"].as_u64()), (Some(3), Some(2), Some(6)));
+        assert_eq!((f["inside_scoop"].as_str(), f["inside_scoop_radius"].as_f64()), (Some("Custom"), Some(8.0)));
+        // the Keep fields keep everything
+        let stored = json!({"width": 3, "depth": 2, "inside_label_text": "A; B"});
+        assert_eq!(apply_edits(&stored, &edit_keep_fields()), stored);
     }
 
     #[test]

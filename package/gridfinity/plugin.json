@@ -2,8 +2,8 @@
  "id": "gridfinity",
  "name": "Gridfinity",
  "version": "1.6.2",
- "description": "Gridfinity bins (hollow, eco or solid), baseplates, and drawer baseplates split to fit your printer or a picked drawer floor, on a full, half or custom grid. Edit bin changes a bin it made, keeping each setting left at Keep.",
- "capabilities": ["commands@0.2", "storage@0.1", "ui@0.1"],
+ "description": "Gridfinity bins (hollow, eco or solid), baseplates, and drawer baseplates split to fit your printer or a picked drawer floor, on a full, half or custom grid. Edit bin changes a bin it made, showing its settings.",
+ "capabilities": ["commands@0.2", "dialog@0.1", "storage@0.1", "ui@0.1"],
  "runtime": {
   "module": "plugin.wasm",
   "entries": [
@@ -121,6 +121,7 @@
    {
     "name": "edit",
     "effect": "edit",
+    "dialog_hook": true,
     "input_schema": {
      "type": "object",
      "x-solidcraft-field-order": "declared",
