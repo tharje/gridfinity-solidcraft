@@ -124,6 +124,8 @@ const LID_PLATE: f64 = 2.0;
 const LID_GAP: f64 = 10.0;
 /// A flat lid's hollow plug: the ring's thickness at its tip.
 const LID_RING: f64 = 1.6;
+/// A stackable lid's grid: the wall left at the edge where its pockets' tops stop (mm).
+const LID_GRID_WALL: f64 = 0.4;
 /// The lid's fit by default: tighter than a bin stacked in the lip (GAP / 2), so it stays on.
 pub(crate) const LID_FIT: f64 = 0.15;
 
@@ -812,7 +814,7 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
 /// `lid_fit` smaller on each side, so it sits in the lip and holds by friction, and a plate that
 /// rests on the top of the lip. Every slope is 45° or steeper, so it prints without supports. A
 /// flat lid lies plate down with a hollow plug, a ring, on top. A stackable lid stands on its
-/// solid plug, with a stacking lip of its own on the plate, so another bin stands on it.
+/// solid plug, with a baseplate's grid on the plate, so other bins stand on it in place.
 fn lid_commands(out: &mut Vec<Value>, o: &BinOptions) {
     let lid = format!("{} Lid", o.name);
     let n = |s: &str| format!("{lid} {s}");
@@ -844,18 +846,27 @@ fn lid_commands(out: &mut Vec<Value>, o: &BinOptions) {
         return;
     }
     plug_from(out, plug, "negative", Op::New(&lid));
+    // A grid on top: a baseplate's pocket over each cell, so a bin stands on the lid in place.
+    // The lid is GAP narrower than a baseplate, so the pockets' tops would cut through its edge:
+    // the grid stops LID_GRID_DROP lower, where the wall around them is LID_GRID_WALL thick.
+    let (pa, pm, pc) = PLATE_PROFILE;
+    let rim = PLATE_RIM;
+    let depth = pa + pm + pc - rim;
+    let drop = GAP / 2.0 - rim + LID_GRID_WALL;
     sketch(out, plug, &n("Plate"), vec![at(0.0)]);
-    out.push(extrude(&n("Plate"), LID_PLATE + plug, Op::Join(&lid), None, "positive"));
-    // the bin's own stacking lip, cut down to the plate: a bin stands on the plate in it
-    let mut z = plug + LID_PLATE + plug;
-    sketch(out, z, &n("Lip1"), vec![at(LIP_FLAT)]);
-    out.push(extrude(&n("Lip1"), slope, Op::Cut(&lid), Some(-45.0), "negative"));
-    z -= slope;
-    sketch(out, z, &n("Lip2"), vec![at(LIP.2)]);
-    out.push(extrude(&n("Lip2"), straight, Op::Cut(&lid), None, "negative"));
-    z -= straight;
-    sketch(out, z, &n("Lip3"), vec![at(LIP.2)]);
-    out.push(extrude(&n("Lip3"), low, Op::Cut(&lid), Some(-45.0), "negative"));
+    out.push(extrude(&n("Plate"), LID_PLATE + depth - drop, Op::Join(&lid), None, "positive"));
+    let grid = o.grid_corner();
+    let cells = Block { corner: [grid[0] + w + LID_GAP, grid[1]], nx: o.nx, ny: o.ny, pitch: o.pitch };
+    let [sx, sy] = o.pitch;
+    let shapes = |inset: f64, r: f64| block_rrects(cells, sx - 2.0 * inset, sy - 2.0 * inset, r);
+    let (r_top, r_mid) = (PLATE_R - rim, PLATE_R - pc);
+    let top = plug + LID_PLATE + depth;
+    sketch(out, top, &n("Grid1"), shapes(rim, r_top));
+    out.push(extrude(&n("Grid1"), pc - rim, Op::Cut(&lid), Some(-45.0), "negative"));
+    sketch(out, top - pc + rim, &n("Grid2"), shapes(pc, r_mid));
+    out.push(extrude(&n("Grid2"), pm, Op::Cut(&lid), None, "negative"));
+    sketch(out, top - pc + rim - pm, &n("Grid3"), shapes(pc, r_mid));
+    out.push(extrude(&n("Grid3"), pa, Op::Cut(&lid), Some(-45.0), "negative"));
 }
 
 pub fn baseplate_commands(o: &BaseplateOptions) -> Vec<Value> {

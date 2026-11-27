@@ -6,6 +6,9 @@
  "capabilities": ["commands@0.2", "dialog@0.1", "storage@0.1", "ui@0.1"],
  "runtime": {
   "module": "plugin.wasm",
+  "ribbon_groups": [
+   {"label": "Panel helpers", "entries": ["panel-refresh", "panel-select", "quick-bin-1x1", "quick-bin-scoop", "quick-bin-4", "quick-bin-eco", "quick-plate", "layout-remove", "layout-restore", "settings-change"]}
+  ],
   "entries": [
    {
     "name": "bin",

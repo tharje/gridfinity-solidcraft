@@ -44,8 +44,10 @@ one undo step, editable afterwards, and they keep working without the plugin.
   side by default, where a stacked bin has 0.25), so it sits in the lip and stays on by friction;
   less holds tighter, more comes off easier. Its plate rests on top of the lip. A flat lid lies
   plate down with its plug hollow, a 1.6 mm ring (a 2×1 lid takes 9.3 cm³). A stackable lid has a
-  stacking lip on top, so another bin stands on it, and stands on its plug, which is solid so it
-  prints without supports (a 3×2 lid takes 63.6 cm³). A lid needs the bin's stacking lip.
+  baseplate's grid on top, a pocket over each cell, so other bins stand on it in place; the
+  pockets stop 0.6 mm below a baseplate's top, so the lid's edge keeps a 0.4 mm wall. It stands on
+  its plug, which is solid so it prints without supports (a 3×2 lid takes 67.9 cm³). A lid needs
+  the bin's stacking lip.
 
   ![A bin with a stackable lid, and a smaller one with a flat lid](docs/images/bin-lids.png)
 - **Layout sheet** (SolidCraft 0.46.2): a drawer baseplate comes with a drawing of its pieces, each
@@ -245,10 +247,10 @@ Dimensions follow the Gridfinity spec as implemented in gridfinity-rebuilt-opens
 ([research/SPEC.md](research/SPEC.md)). Every shape was checked by exporting STL from SolidCraft and
 measuring its cross-sections. Not yet printed: please report how it fits.
 
-> Status: 1.7.0. Needs SolidCraft 0.49.1 or newer: from 0.49.1 a dialog can show its fields in the
-> order the plugin gives them. 0.48 still runs it, but with the fields in alphabetical order. Use
-> 0.50.0 if you can: 0.49 joins the cells slowly, and big bins or plates can hit the time limit.
-> Tested with SolidCraft 0.49.1 and 0.50.0 through scripts/`solidcraft-cli` and in the desktop app's
+> Status: main, for the next release. Needs SolidCraft 0.50.0 or newer: the panel's helper commands sit behind one
+> **Panel helpers** button in the ribbon (`ribbon_groups`, new in 0.50), which 0.49 refuses. For
+> SolidCraft 0.49.1 use [1.7.0](../../releases/tag/v1.7.0).
+> Tested with SolidCraft 0.50.0 through scripts/`solidcraft-cli` and in the desktop app's
 > plugin dialog. SolidCraft's plugin runtime is itself experimental, so other versions may refuse the
 > package. For SolidCraft 0.46.2 or 0.47, use [Gridfinity 1.5.0](../../releases/tag/v1.5.0); for 0.45, use
 > [Gridfinity 1.4.1](../../releases/tag/v1.4.1); for 0.43 or 0.44,
