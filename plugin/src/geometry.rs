@@ -105,7 +105,27 @@ pub struct BinOptions {
     /// The bin's corner, filler included.
     pub origin: [f64; 2],
     pub name: String,
+    /// A lid made beside the bin, to sit in its stacking lip.
+    pub lid: Lid,
+    /// The room between the lid's plug and the stacking lip, on each side (mm): less holds tighter.
+    pub lid_fit: f64,
 }
+
+/// A bin's lid: none, flat on top, or with a stacking lip on top, so another bin stands on it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Lid {
+    None,
+    Flat,
+    Stackable,
+}
+
+/// The lid's plate above its plug (mm), and the gap between the bin and the lid made beside it.
+const LID_PLATE: f64 = 2.0;
+const LID_GAP: f64 = 10.0;
+/// A flat lid's hollow plug: the ring's thickness at its tip.
+const LID_RING: f64 = 1.6;
+/// The lid's fit by default: tighter than a bin stacked in the lip (GAP / 2), so it stays on.
+pub(crate) const LID_FIT: f64 = 0.15;
 
 /// Height of the inside of a bin above its floor: the highest a solid bin's fill can stop below
 /// the walls (mm from the bottom of the bin).
@@ -782,7 +802,60 @@ pub fn bin_commands(o: &BinOptions) -> Vec<Value> {
             out.push(cmd("solid.combine", json!({"target": b, "tools": [n("Label")], "operation": "cut", "keep_tools": true})));
         }
     }
+    if o.lid != Lid::None {
+        lid_commands(&mut out, o);
+    }
     out
+}
+
+/// The lid, beside the bin as it prints: a plug shaped like the inside of the stacking lip,
+/// `lid_fit` smaller on each side, so it sits in the lip and holds by friction, and a plate that
+/// rests on the top of the lip. Every slope is 45° or steeper, so it prints without supports. A
+/// flat lid lies plate down with a hollow plug, a ring, on top. A stackable lid stands on its
+/// solid plug, with a stacking lip of its own on the plate, so another bin stands on it.
+fn lid_commands(out: &mut Vec<Value>, o: &BinOptions) {
+    let lid = format!("{} Lid", o.name);
+    let n = |s: &str| format!("{lid} {s}");
+    let (bx, cy, w, d) = o.outline();
+    let cx = bx + w + LID_GAP;
+    let top = FOOT_TOP_R;
+    let f = o.lid_fit;
+    let at = |inset: f64| rrect(cx, cy, w - 2.0 * inset, d - 2.0 * inset, (top - inset).max(0.2));
+    // the lip from its top down: 45° in to LIP.2, straight down LIP.1, 45° in by LIP.0
+    let (slope, straight, low) = (LIP.2 - LIP_FLAT, LIP.1, LIP.0);
+    let plug = low + straight + slope;
+    // the plug from the plate out, each part sketched where it starts
+    let plug_from = |out: &mut Vec<Value>, z0: f64, dir: &str, first: Op| {
+        let s = if dir == "positive" { 1.0 } else { -1.0 };
+        sketch(out, z0, &n("Plug1"), vec![at(LIP_FLAT + f)]);
+        out.push(extrude(&n("Plug1"), slope, first, Some(-45.0), dir));
+        sketch(out, z0 + s * slope, &n("Plug2"), vec![at(LIP.2 + f)]);
+        out.push(extrude(&n("Plug2"), straight, Op::Join(&lid), None, dir));
+        sketch(out, z0 + s * (slope + straight), &n("Plug3"), vec![at(LIP.2 + f)]);
+        out.push(extrude(&n("Plug3"), low, Op::Join(&lid), Some(-45.0), dir));
+    };
+    if o.lid == Lid::Flat {
+        sketch(out, 0.0, &n("Plate"), vec![at(0.0)]);
+        out.push(extrude(&n("Plate"), LID_PLATE, Op::New(&lid), None, "positive"));
+        plug_from(out, LID_PLATE, "positive", Op::Join(&lid));
+        // hollow: a ring LID_RING thick at the plug's tip
+        sketch(out, LID_PLATE, &n("Hollow"), vec![at(LIP.0 + LIP.2 + f + LID_RING)]);
+        out.push(extrude(&n("Hollow"), plug + 0.1, Op::Cut(&lid), None, "positive"));
+        return;
+    }
+    plug_from(out, plug, "negative", Op::New(&lid));
+    sketch(out, plug, &n("Plate"), vec![at(0.0)]);
+    out.push(extrude(&n("Plate"), LID_PLATE + plug, Op::Join(&lid), None, "positive"));
+    // the bin's own stacking lip, cut down to the plate: a bin stands on the plate in it
+    let mut z = plug + LID_PLATE + plug;
+    sketch(out, z, &n("Lip1"), vec![at(LIP_FLAT)]);
+    out.push(extrude(&n("Lip1"), slope, Op::Cut(&lid), Some(-45.0), "negative"));
+    z -= slope;
+    sketch(out, z, &n("Lip2"), vec![at(LIP.2)]);
+    out.push(extrude(&n("Lip2"), straight, Op::Cut(&lid), None, "negative"));
+    z -= straight;
+    sketch(out, z, &n("Lip3"), vec![at(LIP.2)]);
+    out.push(extrude(&n("Lip3"), low, Op::Cut(&lid), Some(-45.0), "negative"));
 }
 
 pub fn baseplate_commands(o: &BaseplateOptions) -> Vec<Value> {
@@ -887,7 +960,7 @@ mod tests {
     fn bin(nx: u32, ny: u32, units: u32) -> BinOptions {
         BinOptions { nx, ny, pitch: [PITCH; 2], units, sized_units: units, magnets: true, magnet: MAGNET, screws: false, div_x: 1, div_y: 0, lip: true, solid: false, eco: false, fill: 0.0, scoop: 0.0, scoop_auto: false, label: false, label_w: LABEL_W, sticker: false,
             label_text: vec![], text_size: 0.0, text_height: 0.4, flush: false, font: String::new(), filler: [0.0; 4], wall: 0.0,
-                     origin: [0.0, 0.0], name: "Bin".into() }
+                     origin: [0.0, 0.0], name: "Bin".into(), lid: Lid::None, lid_fit: LID_FIT }
     }
 
     fn circles(c: &[Value]) -> Vec<(f64, f64)> {

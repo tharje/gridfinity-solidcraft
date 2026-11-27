@@ -7,7 +7,7 @@ pub mod panel;
 pub mod plate;
 
 use drawer::{drawer_commands, DrawerOptions, Filler, LAYOUT_GAP};
-use geometry::{baseplate_commands, bin_commands, bin_inside_top, bin_size, bin_wall, label_areas, label_size, text_depth, text_width, BaseplateOptions, BinOptions, FLOOR_Z, HALF_PITCH, PITCH, UNIT_H};
+use geometry::{baseplate_commands, bin_commands, Lid, bin_inside_top, bin_size, bin_wall, label_areas, label_size, text_depth, text_width, BaseplateOptions, BinOptions, FLOOR_Z, HALF_PITCH, PITCH, UNIT_H};
 use serde_json::{Map, Value};
 use serde_json::json;
 
@@ -228,7 +228,18 @@ pub fn parse_bin(params: &Value) -> Result<BinOptions, String> {
         wall,
         origin: get_origin(p)?,
         name: get_name(p, &auto_name)?,
+        lid: match p.get("lid") {
+            None | Some(Value::Null) => Lid::None,
+            Some(Value::String(s)) if s.to_ascii_lowercase().starts_with("none") => Lid::None,
+            Some(Value::String(s)) if s.to_ascii_lowercase().starts_with("flat") => Lid::Flat,
+            Some(Value::String(s)) if s.to_ascii_lowercase().starts_with("stack") => Lid::Stackable,
+            _ => return Err("Lid must be \"None\", \"Flat\" or \"Stackable\"".into()),
+        },
+        lid_fit: get_mm(p, "lid_fit", geometry::LID_FIT, 0.0, 0.5)?,
     };
+    if o.lid != Lid::None && !lip {
+        return Err("A lid sits in the stacking lip: turn Stacking lip on, or choose Lid \"None\".".into());
+    }
     // the automatic name says how big the bin really is
     if o.name == auto_name {
         let [w, d, h] = bin_size(&o);
@@ -2293,6 +2304,21 @@ mod tests {
         assert_eq!(apply_edits(&stored, &json!({"magnet_diameter": 0, "magnet_depth": 0})), stored);
         let e = apply_edits(&stored, &json!({"magnet_diameter": 6.2, "magnet_depth": 2.2}));
         assert_eq!((e["magnet_diameter"].as_f64(), e["magnet_depth"].as_f64()), (Some(6.2), Some(2.2)));
+    }
+
+    #[test]
+    fn a_lid_is_made_beside_the_bin_and_needs_the_stacking_lip() {
+        for (kind, cuts) in [("Flat", 1), ("Stackable", 3)] {
+            let (_, c) = plan("bin", &json!({"width": 2, "lid": kind})).unwrap();
+            let lid = c.iter().filter(|v| v["params"]["body_name"].as_str().is_some_and(|b| b.ends_with(" Lid"))).count();
+            assert_eq!(lid, 1, "{kind}");
+            let cut = c.iter().filter(|v| v["params"]["operation"] == "cut" && v["params"]["targets"][0].as_str().is_some_and(|b| b.ends_with(" Lid"))).count();
+            assert_eq!(cut, cuts, "{kind}");
+        }
+        assert!(plan("bin", &json!({"lid": "Flat", "stacking_lip": false})).unwrap_err().contains("stacking lip"));
+        assert!(plan("bin", &json!({"lid": "Lid"})).is_err());
+        let (_, none) = plan("bin", &json!({})).unwrap();
+        assert!(!none.iter().any(|v| v["params"]["body_name"].as_str().is_some_and(|b| b.ends_with(" Lid"))));
     }
 
     #[test]

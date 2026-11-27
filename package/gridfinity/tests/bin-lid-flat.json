@@ -1,0 +1,18 @@
+{
+  "entry": "bin",
+  "params": {
+    "width": 2,
+    "depth": 1,
+    "height": 3,
+    "lid": "Flat"
+  },
+  "expect": {
+    "model": {
+      "body_count": 2,
+      "total": {
+        "volume_mm3": 33115.031
+      }
+    },
+    "tolerance": 0.0001
+  }
+}
