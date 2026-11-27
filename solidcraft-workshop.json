@@ -3,18 +3,46 @@
   "id": "gridfinity",
   "name": "Gridfinity",
   "kind": "plugin",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "licence": "MIT",
-  "min_app_version": "0.49.1",
+  "min_app_version": "0.50.0",
   "summary": "Gridfinity bins, lids, baseplates and drawer plates split to fit your printer, as editable SolidCraft features.",
   "description": "Bins (hollow, eco or solid) with dividers, scoops, label tabs and text, magnet and screw holes; flat or stackable lids; baseplates; drawer plates.",
   "category": "generators",
-  "tags": ["gridfinity", "storage", "bins", "organizer", "baseplate", "drawer"],
-  "permissions": ["commands:drawing", "commands:inspect", "commands:model", "commands:parameters", "commands:sketch", "commands:solid", "commands:storage", "commands:timeline"],
+  "tags": [
+    "gridfinity",
+    "storage",
+    "bins",
+    "organizer",
+    "baseplate",
+    "drawer"
+  ],
+  "permissions": [
+    "commands:drawing",
+    "commands:inspect",
+    "commands:model",
+    "commands:parameters",
+    "commands:sketch",
+    "commands:solid",
+    "commands:storage",
+    "commands:timeline"
+  ],
   "files": [
-    { "asset": "gridfinity-1.7.0.zip", "role": "package" },
-    { "path": "docs/images/bin-3x2x6.png", "role": "image" },
-    { "path": "docs/images/bin-lids.png", "role": "image" },
-    { "path": "docs/images/dialog-edit.png", "role": "image" }
+    {
+      "asset": "gridfinity-1.7.1.zip",
+      "role": "package"
+    },
+    {
+      "path": "docs/images/bin-3x2x6.png",
+      "role": "image"
+    },
+    {
+      "path": "docs/images/bin-lids.png",
+      "role": "image"
+    },
+    {
+      "path": "docs/images/dialog-edit.png",
+      "role": "image"
+    }
   ]
 }

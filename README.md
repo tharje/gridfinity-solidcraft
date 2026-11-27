@@ -247,7 +247,7 @@ Dimensions follow the Gridfinity spec as implemented in gridfinity-rebuilt-opens
 ([research/SPEC.md](research/SPEC.md)). Every shape was checked by exporting STL from SolidCraft and
 measuring its cross-sections. Not yet printed: please report how it fits.
 
-> Status: main, for the next release. Needs SolidCraft 0.50.0 or newer: the panel's helper commands sit behind one
+> Status: 1.7.1. Needs SolidCraft 0.50.0 or newer: the panel's helper commands sit behind one
 > **Panel helpers** button in the ribbon (`ribbon_groups`, new in 0.50), which 0.49 refuses. For
 > SolidCraft 0.49.1 use [1.7.0](../../releases/tag/v1.7.0).
 > Tested with SolidCraft 0.50.0 through scripts/`solidcraft-cli` and in the desktop app's
@@ -257,11 +257,11 @@ measuring its cross-sections. Not yet printed: please report how it fits.
 > [Gridfinity 1.3.1](../../releases/tag/v1.3.1).
 
 ## Install
-Download `gridfinity-1.7.0.zip` from the [latest release](../../releases/latest), then in SolidCraft:
+Download `gridfinity-1.7.1.zip` from the [latest release](../../releases/latest), then in SolidCraft:
 **Plugins › Install plugin…** (or **Preferences › Plugins**) and pick the zip. From a script:
 
 ```json
-{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.7.0.zip"}}]}
+{"commands": [{"command": "plugin.install", "params": {"path": "gridfinity-1.7.1.zip"}}]}
 ```
 
 Add `"replace": true` to update an installed version. You can also unpack the zip into
